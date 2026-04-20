@@ -1,0 +1,9 @@
+.env
+*.db
+*.log
+__pycache__/
+*.pyc
+.venv/
+venv/
+bot_deploy.zip
+errors_screenshots/
