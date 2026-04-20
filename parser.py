@@ -7,6 +7,14 @@ import config
 
 _TZ = zoneinfo.ZoneInfo(config.TIMEZONE)
 
+def _get_tz(tz_name: str | None) -> zoneinfo.ZoneInfo:
+    if tz_name:
+        try:
+            return zoneinfo.ZoneInfo(tz_name)
+        except Exception:
+            pass
+    return _TZ
+
 WORD_NUMBERS = {
     "одну": 1, "одной": 1, "один": 1, "одного": 1,
     "два": 2, "две": 2, "двух": 2, "двум": 2, "пару": 2, "пара": 2,
@@ -89,9 +97,11 @@ def _normalize(text: str) -> str:
         text = re.sub(pat, repl, text, flags=re.IGNORECASE)
     return text
 
-def _next_weekday(target_wd: int) -> datetime:
+def _next_weekday(target_wd: int, tz: zoneinfo.ZoneInfo = None) -> datetime:
     """Возвращает дату следующего вхождения дня недели (не сегодня)."""
-    now = datetime.now(tz=_TZ)
+    if tz is None:
+        tz = _TZ
+    now = datetime.now(tz=tz)
     days_ahead = target_wd - now.weekday()
     if days_ahead <= 0:
         days_ahead += 7
@@ -130,7 +140,9 @@ def _resolve_time(base_day: datetime, text: str) -> float | None:
         return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
     return None
 
-def _parse_interval(text: str) -> int | None:
+def _parse_interval(text: str, tz: zoneinfo.ZoneInfo = None) -> int | None:
+    if tz is None:
+        tz = _TZ
     text = text.lower().strip()
     text = _normalize(text)
 
@@ -183,22 +195,24 @@ def _parse_interval(text: str) -> int | None:
 
     return None
 
-def _parse_once_delta(text: str) -> float | None:
+def _parse_once_delta(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
     """Разбирает относительное/именованное время → unix timestamp."""
+    if tz is None:
+        tz = _TZ
     text = _normalize(text.lower())
 
     if re.search(r"\bзавтра\b", text):
-        tomorrow = datetime.now(tz=_TZ) + timedelta(days=1)
+        tomorrow = datetime.now(tz=tz) + timedelta(days=1)
         ts = _resolve_time(tomorrow, text)
         return ts if ts is not None else time.time() + 86400
 
     if re.search(r"\bпослезавтра\b", text):
-        day2 = datetime.now(tz=_TZ) + timedelta(days=2)
+        day2 = datetime.now(tz=tz) + timedelta(days=2)
         ts = _resolve_time(day2, text)
         return ts if ts is not None else time.time() + 172800
 
     if re.search(r"\bсегодня\b", text):
-        today = datetime.now(tz=_TZ)
+        today = datetime.now(tz=tz)
         ts = _resolve_time(today, text)
         if ts is not None:
             if ts < time.time():
@@ -209,7 +223,7 @@ def _parse_once_delta(text: str) -> float | None:
     m_wd = re.search(r"\bв\s+(" + _WEEKDAY_PAT + r")\b", text)
     if m_wd:
         wd = WEEKDAYS_RU[m_wd.group(1)]
-        target_day = _next_weekday(wd)
+        target_day = _next_weekday(wd, tz)
         ts = _resolve_time(target_day, text)
         if ts is not None:
             return ts
@@ -267,12 +281,14 @@ def _parse_once_delta(text: str) -> float | None:
 
     return None
 
-def _parse_once_absolute(text: str) -> float | None:
+def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
     """Разбирает абсолютное время → unix timestamp."""
+    if tz is None:
+        tz = _TZ
     lower = _normalize(text.lower())
 
     def _today_or_tomorrow(h: int, mn: int = 0) -> float:
-        now = datetime.now(tz=_TZ)
+        now = datetime.now(tz=tz)
         target = now.replace(hour=h, minute=mn, second=0, microsecond=0)
         if target.timestamp() < time.time():
             target += timedelta(days=1)
@@ -380,9 +396,10 @@ def _extract_message(text: str) -> str:
         result = re.sub(r"\s{2,}", " ", result)
     return result.strip(" ,.")
 
-def parse(text: str) -> dict:
+def parse(text: str, user_tz: str | None = None) -> dict:
     text_clean = text.strip()
     lower = _normalize(text_clean.lower())
+    tz = _get_tz(user_tz)
 
     result = {
         "type": None,
@@ -430,13 +447,13 @@ def parse(text: str) -> dict:
     ))
 
     if is_once:
-        next_fire = _parse_once_delta(lower)
+        next_fire = _parse_once_delta(lower, tz)
 
         # normalize
         text_norm = _normalize(text_clean)
 
         if next_fire is None:
-            next_fire = _parse_once_absolute(text_clean)
+            next_fire = _parse_once_absolute(text_clean, tz)
             msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
         else:
             msg = re.sub(_DELTA_STRIP, "", text_norm, flags=re.IGNORECASE)

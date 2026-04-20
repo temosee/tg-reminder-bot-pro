@@ -441,15 +441,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         await update.message.reply_text("👍", reply_markup=MAIN_KEYBOARD)
         return
 
+    user_tz = user_row["timezone"] if user_row else None
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     results = []
     for line in lines:
-        parsed = reminder_parser.parse(line)
+        parsed = reminder_parser.parse(line, user_tz=user_tz)
         if not parsed["error"]:
             results.append((line, parsed))
 
     if not results:
-        parsed = reminder_parser.parse(lines[0] if lines else text)
+        parsed = reminder_parser.parse(lines[0] if lines else text, user_tz=user_tz)
         await update.message.reply_text(parsed["error"], reply_markup=MAIN_KEYBOARD)
         return
 
