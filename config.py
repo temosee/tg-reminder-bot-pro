@@ -2,7 +2,7 @@ import os
 
 TOKEN = os.environ["BOT_TOKEN"]
 
-DB_PATH = os.environ.get("DB_PATH", "reminders.db")
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 
