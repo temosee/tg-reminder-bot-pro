@@ -2,11 +2,20 @@ import time
 import os
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 from config import DATABASE_URL
 
+_pool = psycopg2.pool.ThreadedConnectionPool(2, 10, DATABASE_URL)
+
+from contextlib import contextmanager
+
+@contextmanager
 def get_conn():
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    conn = _pool.getconn()
+    try:
+        yield conn
+    finally:
+        _pool.putconn(conn)
 
 def init_db():
     with get_conn() as conn:
