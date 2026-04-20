@@ -81,7 +81,9 @@ def _normalize(text: str) -> str:
         (r"\bночкой\b",   "ночью"),
         (r"\bполчас[аик]*\b", "30 минут"),
         (r"\bпол\s+час[аик]*\b", "30 минут"),
-        (r"\bбудильник\s+на\b", "в"),  # "будильник на 8" → "в 8"
+        (r"\bбудильник\s+на\b", "в"),
+        (r"\bчасо\b", "часов"),
+        (r"\bминутк?\b", "минут"),
     ]
     for pat, repl in subs:
         text = re.sub(pat, repl, text, flags=re.IGNORECASE)
@@ -142,6 +144,18 @@ def _parse_interval(text: str) -> int | None:
         return 86400
     if re.search(r"каждую\s+неделю", text):
         return 604800
+
+    # раз в N дней/недель/месяцев
+    m_raz = re.search(
+        r"раз\s+в\s+([\wа-яё]+)\s+(дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b",
+        text
+    )
+    if m_raz:
+        num = _parse_number(m_raz.group(1))
+        unit = m_raz.group(2)
+        if num is not None:
+            mult = UNITS_TO_SECONDS.get(unit, 86400)
+            return int(num * mult)
 
     # каждые N дней/недель
     m_days = re.search(
@@ -382,7 +396,7 @@ def parse(text: str) -> dict:
         r"напоминай|\bставь напоминание|добавь напоминание|хочу чтобы ты напоминал|"
         r"напоминалку каждый|напоминалку каждые",
         lower
-    )) or bool(re.search(r"каждый|каждые|каждую", lower))
+    )) or bool(re.search(r"каждый|каждые|каждую|раз\s+в\s+", lower))
 
     if is_recurring:
         interval = _parse_interval(lower)
@@ -396,6 +410,7 @@ def parse(text: str) -> dict:
         text_norm_rec = _normalize(text_clean)
         msg = re.sub(
             r"каждый\s+час|каждую\s+минуту|каждую\s+секунду|каждый\s+день|каждые\s+сутки|каждую\s+неделю|"
+            r"раз\s+в\s+[\wа-яё]+\s+(?:дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b|"
             r"каждые?\s+[\wа-яё.,]+(?:\s+[\wа-яё]+)?\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|недел[юьи]|недель)\b",
             "", text_norm_rec, flags=re.IGNORECASE
         )

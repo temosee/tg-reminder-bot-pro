@@ -36,7 +36,7 @@ INTENT_NOTES_LIST = [
 ]
 
 INTENT_NOTES_ADD = re.compile(
-    r"^\s*запомни[:\s]+(.+)$", re.IGNORECASE | re.DOTALL
+    r"^\s*запомни(?:\s+что)?\s*:?\s+(.+)$", re.IGNORECASE | re.DOTALL
 )
 
 INTENT_NOTES_DELETE = re.compile(
