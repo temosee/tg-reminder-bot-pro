@@ -1,0 +1,111 @@
+STRINGS = {
+    'ru': {
+        'welcome_new':     "Привет, {name}! Я бот-напоминалка. Напиши свой город, чтобы напоминания приходили в точное время!",
+        'welcome_back':    "Привет, {name}! Чем могу помочь?",
+        'welcome_features':(
+            "Вот что я умею:\n\n"
+            "⏰ Одноразовые: напомни о встрече завтра в 10, напомни позвонить маме через полчаса\n\n"
+            "🔁 Повторяющиеся: напоминай пить воду каждые 2 часа\n\n"
+            "🗒 Заметки: запомни: друг должен мне 3000₽ — сохраняю без времени\n\n"
+            "Пиши как удобно — любые напоминания в любом формате."
+        ),
+        'awaiting_city':   "Напиши свой город:",
+        'city_searching':  "Ищу город...",
+        'city_set':        "✅ Город: {display}\nВремя будет по этому городу.",
+        'city_not_found':  "Не смог найти «{city}». Попробуй написать иначе — например: Москва, Питер, Новосибирск",
+        'no_reminders':    "У тебя нет активных напоминаний.",
+        'reminders_header':"<b>Твои напоминания:</b>\n",
+        'label_recurring': "каждые {interval} — {msg}",
+        'label_once':      "в {time} — {msg}",
+        'confirm_once':    "⏰ В {time}: «{msg}»",
+        'confirm_recurring':     "🔁 Каждые {interval}: «{msg}»",
+        'confirm_recurring_from':"🔁 Каждые {interval} с {time}: «{msg}»",
+        'all_deleted':     "Удалил все напоминания ({count} шт.)",
+        'none_to_delete':  "Нет напоминаний для удаления.",
+        'deleted':         "Удалил: «{msg}»",
+        'not_found_id':    "Напоминание #{id} не найдено.",
+        'already_deleted': "Напоминание уже удалено.",
+        'ordinal_none':    "Столько напоминаний нет.",
+        'no_notes':        "У тебя нет заметок.\n\nЧтобы сохранить — напиши: запомни: текст",
+        'notes_header':    "<b>Твои заметки:</b>\n",
+        'note_saved':      "📝 Запомнил: «{text}»",
+        'note_too_long':   "Заметка слишком длинная (макс 500 символов).",
+        'note_deleted':    "Забыл: «{text}»",
+        'note_not_found':  "Не нашёл заметку про «{query}».",
+        'notes_all_deleted':"Все заметки удалены.",
+        'note_clarify':    "Нашёл несколько заметок, уточни какую удалить:",
+        'stats':           "📊 <b>Твоя статистика:</b>\n\n• Всего создано: {total}\n• Активных сейчас: {active}",
+        'flood':           "Не так быстро! Подожди немного.",
+        'voice_fail':      "Не смог распознать голосовое 😕",
+        'snoozed':         "⏰ {msg}\n\n⏩ Перенесено на {time}",
+        'btn_close':       "✖ Закрыть",
+        'btn_delete':      "🗑 Удалить — {msg}",
+        'btn_accept':      "✅ Принял",
+        'lang_ask':        "На какой язык переключить?",
+        'lang_changed':    "✅ Язык изменён на русский 🇷🇺",
+        'btn_reminders':   "📋 Мои напоминания",
+        'btn_stats':       "📊 Статистика",
+        'btn_notes':       "🗒 Заметки",
+        'placeholder':     "Напиши что и когда напомнить...",
+        'interval_sec':    "{n} сек",
+        'interval_min':    "{n} мин",
+        'interval_h':      "{n} ч",
+    },
+    'en': {
+        'welcome_new':     "Hey, {name}! I'm a reminder bot. Enter your city so reminders arrive on time!",
+        'welcome_back':    "Hey, {name}! How can I help?",
+        'welcome_features':(
+            "Here's what I can do:\n\n"
+            "⏰ One-time: remind me about a meeting tomorrow at 10, remind me to call mom in 30 min\n\n"
+            "🔁 Recurring: remind me to drink water every 2 hours\n\n"
+            "🗒 Notes: remember: friend owes me $50 — saved without a time, check whenever\n\n"
+            "Write however you like — any format works."
+        ),
+        'awaiting_city':   "Enter your city:",
+        'city_searching':  "Searching...",
+        'city_set':        "✅ City: {display}\nReminders will use this city's timezone.",
+        'city_not_found':  "Couldn't find «{city}». Try again — e.g.: Moscow, London, New York, Toronto",
+        'no_reminders':    "You have no active reminders.",
+        'reminders_header':"<b>Your reminders:</b>\n",
+        'label_recurring': "every {interval} — {msg}",
+        'label_once':      "at {time} — {msg}",
+        'confirm_once':    "⏰ At {time}: «{msg}»",
+        'confirm_recurring':     "🔁 Every {interval}: «{msg}»",
+        'confirm_recurring_from':"🔁 Every {interval} from {time}: «{msg}»",
+        'all_deleted':     "Deleted all reminders ({count} total)",
+        'none_to_delete':  "No reminders to delete.",
+        'deleted':         "Deleted: «{msg}»",
+        'not_found_id':    "Reminder #{id} not found.",
+        'already_deleted': "Reminder already deleted.",
+        'ordinal_none':    "You don't have that many reminders.",
+        'no_notes':        "You have no notes.\n\nTo save one — write: remember: text",
+        'notes_header':    "<b>Your notes:</b>\n",
+        'note_saved':      "📝 Saved: «{text}»",
+        'note_too_long':   "Note is too long (max 500 chars).",
+        'note_deleted':    "Forgotten: «{text}»",
+        'note_not_found':  "Couldn't find a note about «{query}».",
+        'notes_all_deleted':"All notes deleted.",
+        'note_clarify':    "Found several notes, which one to delete?",
+        'stats':           "📊 <b>Your stats:</b>\n\n• Total created: {total}\n• Active now: {active}",
+        'flood':           "Slow down! Wait a moment.",
+        'voice_fail':      "Couldn't recognize voice message 😕",
+        'snoozed':         "⏰ {msg}\n\n⏩ Snoozed to {time}",
+        'btn_close':       "✖ Close",
+        'btn_delete':      "🗑 Delete — {msg}",
+        'btn_accept':      "✅ Got it",
+        'lang_ask':        "Which language would you like?",
+        'lang_changed':    "✅ Language changed to English 🇬🇧",
+        'btn_reminders':   "📋 My reminders",
+        'btn_stats':       "📊 Statistics",
+        'btn_notes':       "🗒 Notes",
+        'placeholder':     "Write what and when to remind...",
+        'interval_sec':    "{n} sec",
+        'interval_min':    "{n} min",
+        'interval_h':      "{n} h",
+    },
+}
+
+def t(lang: str, key: str, **kwargs) -> str:
+    lang = lang if lang in STRINGS else 'ru'
+    s = STRINGS[lang].get(key) or STRINGS['ru'].get(key, key)
+    return s.format(**kwargs) if kwargs else s

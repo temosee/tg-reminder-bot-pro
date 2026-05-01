@@ -17,6 +17,7 @@ import scheduler as sched
 import admin as admin_handlers
 import city_tz
 from groq import Groq
+from translations import t
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -24,23 +25,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [["📋 Мои напоминания", "📊 Статистика"], ["🗒 Заметки"]],
-    resize_keyboard=True,
-    input_field_placeholder="Напиши что и когда напомнить..."
-)
+def get_lang(user_row) -> str:
+    return (user_row.get('language') or 'ru') if user_row else 'ru'
+
+def get_keyboard(lang: str):
+    return ReplyKeyboardMarkup(
+        [[t(lang, 'btn_reminders'), t(lang, 'btn_stats')], [t(lang, 'btn_notes')]],
+        resize_keyboard=True,
+        input_field_placeholder=t(lang, 'placeholder'),
+    )
+
+def format_interval(seconds: int, lang: str = 'ru') -> str:
+    if seconds < 60:
+        return t(lang, 'interval_sec', n=seconds)
+    if seconds < 3600:
+        return t(lang, 'interval_min', n=seconds // 60)
+    h = seconds / 3600
+    return t(lang, 'interval_h', n=int(h) if h == int(h) else f"{h:.1f}")
 
 INTENT_NOTES_LIST = [
     "мои заметки", "покажи заметки", "все заметки", "заметки",
     "🗒 заметки", "список заметок", "покажи все заметки",
+    "🗒 notes", "notes", "my notes", "show notes", "all notes",
 ]
 
 INTENT_NOTES_ADD = re.compile(
-    r"^\s*запомни(?:\s+что)?\s*:?\s+(.+)$", re.IGNORECASE | re.DOTALL
+    r"^\s*(?:запомни(?:\s+что)?\s*:?\s+|remember\s*:\s*)(.+)$",
+    re.IGNORECASE | re.DOTALL
 )
 
 INTENT_NOTES_DELETE = re.compile(
-    r"^\s*забудь\s+про\s+(.+)$", re.IGNORECASE | re.DOTALL
+    r"^\s*(?:забудь\s+про|forget\s+about)\s+(.+)$",
+    re.IGNORECASE | re.DOTALL
 )
 
 INTENT_LIST = [
@@ -54,6 +70,8 @@ INTENT_LIST = [
     "мои дела", "что запланировано", "какие есть напоминания",
     "есть напоминания", "есть что", "что там", "покажи",
     "текущие напоминания", "сколько напоминаний",
+    "📋 my reminders", "my reminders", "reminders", "show reminders",
+    "list reminders", "active reminders",
 ]
 
 INTENT_DELETE_ALL = [
@@ -62,6 +80,7 @@ INTENT_DELETE_ALL = [
     "убери все напоминания", "сотри все", "сотри всё",
     "сотри все напоминания", "удалить все напоминания",
     "очисти список", "снеси все", "снеси всё",
+    "delete all", "remove all", "clear all", "delete all reminders",
 ]
 
 ORDINAL_TO_INDEX = {
@@ -98,6 +117,16 @@ INTENT_DELETE_N = re.compile(
     r"(напоминание\s+)?(?:#?(\d+)|номер\s+(\d+)|под\s+номером\s+(\d+))"
 )
 
+INTENT_LANG_CHANGE = re.compile(
+    r"(поменять|поменяй|смени|сменить|изменить|измени)\s+язык"
+    r"|язык\s+(поменять|сменить|изменить)"
+    r"|хочу\s+(поменять|сменить)\s+язык"
+    r"|change\s+lang(uage)?"
+    r"|switch\s+lang(uage)?"
+    r"|set\s+lang(uage)?",
+    re.IGNORECASE
+)
+
 def _get_user_tz(user_id: int) -> zoneinfo.ZoneInfo:
     user = db.get_user(user_id)
     tz_name = user["timezone"] if user else "UTC"
@@ -109,47 +138,36 @@ def _get_user_tz(user_id: int) -> zoneinfo.ZoneInfo:
 def _local_dt(ts: float, user_id: int) -> datetime:
     return datetime.fromtimestamp(ts, tz=_get_user_tz(user_id))
 
-def format_interval(seconds: int) -> str:
-    if seconds < 60:
-        return f"{seconds} сек"
-    if seconds < 3600:
-        m = seconds // 60
-        return f"{m} мин"
-    h = seconds / 3600
-    if h == int(h):
-        return f"{int(h)} ч"
-    return f"{h:.1f} ч"
-
-def build_reminders_message(reminders, user_id: int):
-    lines = ["<b>Твои напоминания:</b>\n"]
+def build_reminders_message(reminders, user_id: int, lang: str):
+    lines = [t(lang, 'reminders_header')]
     buttons = []
     for r in reminders:
         if r["type"] == "recurring":
-            interval_str = format_interval(r["interval_seconds"])
-            label = f"каждые {interval_str} — {r['message']}"
+            interval_str = format_interval(r["interval_seconds"], lang)
+            label = t(lang, 'label_recurring', interval=interval_str, msg=r['message'])
         else:
             dt = _local_dt(r["next_fire"], user_id)
-            label = f"в {dt.strftime('%H:%M %d.%m')} — {r['message']}"
+            label = t(lang, 'label_once', time=dt.strftime('%H:%M %d.%m'), msg=r['message'])
         lines.append(f"• {label}")
-        buttons.append([InlineKeyboardButton(f"🗑 Удалить — {r['message'][:30]}", callback_data=f"del_{r['id']}")])
-
-    buttons.append([InlineKeyboardButton("✖ Закрыть", callback_data="close")])
+        buttons.append([InlineKeyboardButton(
+            t(lang, 'btn_delete', msg=r['message'][:30]),
+            callback_data=f"del_{r['id']}"
+        )])
+    buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
     return "\n".join(lines), InlineKeyboardMarkup(buttons)
 
-async def show_notes(update: Update, user_id: int):
+async def show_notes(update: Update, user_id: int, lang: str):
     notes = db.get_notes(user_id)
+    kb = get_keyboard(lang)
     if not notes:
-        await update.message.reply_text(
-            "У тебя нет заметок.\n\nЧтобы сохранить — напиши: запомни: текст",
-            reply_markup=MAIN_KEYBOARD,
-        )
+        await update.message.reply_text(t(lang, 'no_notes'), reply_markup=kb)
         return
-    lines = ["<b>Твои заметки:</b>\n"]
+    lines = [t(lang, 'notes_header')]
     buttons = []
     for n in notes:
         lines.append(f"• {n['text']}")
         buttons.append([InlineKeyboardButton(f"🗑 {n['text'][:40]}", callback_data=f"delnote_{n['id']}")])
-    buttons.append([InlineKeyboardButton("✖ Закрыть", callback_data="close")])
+    buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
     await update.message.reply_text(
         "\n".join(lines), parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(buttons)
@@ -160,65 +178,73 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_new = db.register_user(user.id, user.username or "", user.first_name or "")
 
     user_row = db.get_user(user.id)
+    lang = get_lang(user_row)
     tz_set = user_row and user_row["timezone"] != "UTC"
 
     if is_new or not tz_set:
         context.user_data["awaiting_city"] = True
-        await update.message.reply_text(
-            f"Привет, {user.first_name}! Я бот-напоминалка. "
-            "Напиши свой город, чтобы напоминания приходили в точное время!"
-        )
+        await update.message.reply_text(t(lang, 'welcome_new', name=user.first_name))
         return
 
     await update.message.reply_text(
-        f"Привет, {user.first_name}! Чем могу помочь?",
-        reply_markup=MAIN_KEYBOARD,
+        t(lang, 'welcome_back', name=user.first_name),
+        reply_markup=get_keyboard(lang),
     )
 
-async def _send_welcome(update: Update, first_name: str):
+async def _send_welcome(update: Update, lang: str):
     await update.message.reply_text(
-        "Вот что я умею:\n\n"
-        "⏰ Одноразовые: напомни о встрече завтра в 10, напомни позвонить маме через полчаса\n\n"
-        "🔁 Повторяющиеся: напоминай пить воду каждые 2 часа\n\n"
-        "🗒 Заметки: запомни: друг должен мне 3000₽ — сохраняю без времени, смотришь когда нужно\n\n"
-        "Пиши как удобно — любые напоминания в любом формате.",
-        reply_markup=MAIN_KEYBOARD,
+        t(lang, 'welcome_features'),
+        reply_markup=get_keyboard(lang),
     )
 
 async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.register_user(user.id, user.username or "", user.first_name or "")
+    user_row = db.get_user(user.id)
+    lang = get_lang(user_row)
     context.user_data["awaiting_city"] = True
-    await update.message.reply_text("Напиши свой город:")
+    await update.message.reply_text(t(lang, 'awaiting_city'))
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.register_user(user.id, user.username or "", user.first_name or "")
+    user_row = db.get_user(user.id)
+    lang = get_lang(user_row)
     stats = db.get_user_stats(user.id)
-    text = (
-        "📊 <b>Твоя статистика:</b>\n\n"
-        f"• Всего создано: {stats['total_created']}\n"
-        f"• Активных сейчас: {stats['active']}"
+    await update.message.reply_text(
+        t(lang, 'stats', total=stats['total_created'], active=stats['active']),
+        parse_mode="HTML", reply_markup=get_keyboard(lang)
     )
-    await update.message.reply_text(text, parse_mode="HTML", reply_markup=MAIN_KEYBOARD)
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await cmd_start(update, context)
 
-async def show_reminders(update: Update, user_id: int):
+async def show_reminders(update: Update, user_id: int, lang: str):
     reminders = db.get_reminders(user_id)
     if not reminders:
-        await update.message.reply_text(
-            "У тебя нет активных напоминаний.",
-            reply_markup=MAIN_KEYBOARD,
-        )
+        await update.message.reply_text(t(lang, 'no_reminders'), reply_markup=get_keyboard(lang))
         return
-    text, keyboard = build_reminders_message(reminders, user_id)
+    text, keyboard = build_reminders_message(reminders, user_id, lang)
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
+    user_row = db.get_user(query.from_user.id)
+    lang = get_lang(user_row)
+
+    # lang switch
+    if query.data.startswith("lang_"):
+        new_lang = query.data[5:]
+        db.update_language(query.from_user.id, new_lang)
+        await query.edit_message_text(t(new_lang, 'lang_changed'))
+        await context.bot.send_message(
+            query.message.chat_id,
+            t(new_lang, 'welcome_back', name=query.from_user.first_name or ""),
+            reply_markup=get_keyboard(new_lang),
+        )
+        return
 
     # close
     if query.data == "close":
@@ -244,7 +270,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sched.add_once_job(context.bot, new_id, info["chat_id"], info["message"], new_fire)
             sched.PENDING_SNOOZE.pop(reminder_id, None)
             dt = _local_dt(new_fire, query.from_user.id)
-            await query.edit_message_text(f"⏰ {info['message']}\n\n⏩ Перенесено на {dt.strftime('%H:%M')}")
+            await query.edit_message_text(t(lang, 'snoozed', msg=info['message'], time=dt.strftime('%H:%M')))
         else:
             await query.edit_message_reply_markup(reply_markup=None)
         return
@@ -255,26 +281,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(reply_markup=None)
         return
 
-    # ── Удаление из списка ────────────────────────────────────────────────────
+    # delete note
     if query.data.startswith("delnote_"):
         note_id = int(query.data[8:])
         db.delete_note(note_id, query.from_user.id)
         notes = db.get_notes(query.from_user.id)
         if notes:
-            lines = ["<b>Твои заметки:</b>\n"]
+            lines = [t(lang, 'notes_header')]
             buttons = []
             for n in notes:
                 lines.append(f"• {n['text']}")
                 buttons.append([InlineKeyboardButton(f"🗑 {n['text'][:40]}", callback_data=f"delnote_{n['id']}")])
-            buttons.append([InlineKeyboardButton("✖ Закрыть", callback_data="close")])
+            buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
             await query.edit_message_text("\n".join(lines), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
         else:
-            await query.edit_message_text("Все заметки удалены.")
+            await query.edit_message_text(t(lang, 'notes_all_deleted'))
         return
 
     if not query.data.startswith("del_"):
         return
 
+    # delete reminder
     rid = int(query.data[4:])
     user_id = query.from_user.id
 
@@ -286,119 +313,133 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.delete_reminder(rid, user_id)
         remaining = db.get_reminders(user_id)
         if remaining:
-            text, keyboard = build_reminders_message(remaining, user_id)
+            text, keyboard = build_reminders_message(remaining, user_id, lang)
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         else:
-            await query.edit_message_text("Все напоминания удалены.")
+            await query.edit_message_text(t(lang, 'all_deleted', count=0).split("(")[0].strip())
     else:
-        await query.edit_message_text("Напоминание уже удалено.")
+        await query.edit_message_text(t(lang, 'already_deleted'))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _text: str = None):
     user = update.effective_user
     db.register_user(user.id, user.username or "", user.first_name or "")
 
     user_row = db.get_user(user.id)
+    lang = get_lang(user_row)
+    kb = get_keyboard(lang)
 
     if user_row and user_row["is_banned"]:
         return
 
-    # Ожидание ввода города
+    # waiting for city
     if context.user_data.get("awaiting_city"):
         city_input = (update.message.text or "").strip()
-        await update.message.reply_text("Ищу город...")
+        await update.message.reply_text(t(lang, 'city_searching'))
         tz, display = city_tz.city_to_timezone(city_input)
         if tz:
             db.update_timezone(user.id, tz)
             context.user_data.pop("awaiting_city", None)
-            await update.message.reply_text(
-                f"✅ Город: {display}\nВремя будет по этому городу.",
-                reply_markup=MAIN_KEYBOARD,
-            )
-            await _send_welcome(update, user.first_name)
+            await update.message.reply_text(t(lang, 'city_set', display=display), reply_markup=kb)
+            await _send_welcome(update, lang)
         else:
-            await update.message.reply_text(
-                f"Не смог найти «{city_input}». Попробуй написать иначе — например: Москва, Питер, Новосибирск"
-            )
+            await update.message.reply_text(t(lang, 'city_not_found', city=city_input))
         return
 
-    # Антифлуд
+    # flood check
     allowed, reason = middleware.check_message(user.id)
     if not allowed:
         if reason == "flood":
-            await update.message.reply_text("Не так быстро! Подожди немного.", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(t(lang, 'flood'), reply_markup=kb)
         return
 
     text = _text if _text is not None else update.message.text.strip()
     lower = text.lower()
 
-    if lower.strip() in ("📊 статистика", "статистика"):
+    # lang switch
+    if INTENT_LANG_CHANGE.search(lower):
+        inline_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
+            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+        ]])
+        await update.message.reply_text(t(lang, 'lang_ask'), reply_markup=inline_kb)
+        return
+
+    # stats
+    if lower.strip() in ("📊 статистика", "статистика", "📊 statistics", "statistics"):
         await cmd_stats(update, context)
         return
 
+    # show notes
     if any(kw in lower for kw in INTENT_NOTES_LIST):
-        await show_notes(update, user.id)
+        await show_notes(update, user.id, lang)
         return
 
+    # save note
     m_note_add = INTENT_NOTES_ADD.match(text)
     if m_note_add:
         note_text = m_note_add.group(1).strip()
         if len(note_text) > 500:
-            await update.message.reply_text("Заметка слишком длинная (макс 500 символов).", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(t(lang, 'note_too_long'), reply_markup=kb)
             return
         db.add_note(user.id, note_text)
-        await update.message.reply_text(f"📝 Запомнил: «{note_text}»", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text(t(lang, 'note_saved', text=note_text), reply_markup=kb)
         return
 
+    # delete note text
     m_note_del = INTENT_NOTES_DELETE.match(text)
     if m_note_del:
         query_text = m_note_del.group(1).strip().lower()
         notes = db.get_notes(user.id)
         matched = [n for n in notes if query_text in n["text"].lower()]
         if not matched:
-            await update.message.reply_text(f"Не нашёл заметку про «{query_text}».", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(t(lang, 'note_not_found', query=query_text), reply_markup=kb)
         elif len(matched) == 1:
             db.delete_note(matched[0]["id"], user.id)
-            await update.message.reply_text(f"Забыл: «{matched[0]['text']}»", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(t(lang, 'note_deleted', text=matched[0]['text']), reply_markup=kb)
         else:
-            lines = ["Нашёл несколько заметок, уточни какую удалить:"]
+            lines = [t(lang, 'note_clarify')]
             for n in matched:
                 lines.append(f"• {n['text']}")
-            await update.message.reply_text("\n".join(lines), reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text("\n".join(lines), reply_markup=kb)
         return
 
+    # delete by index
     m_ord = INTENT_DELETE_ORDINAL.search(lower)
     if m_ord:
         ordinal_word = m_ord.group(3).lower()
         idx = ORDINAL_TO_INDEX.get(ordinal_word)
         reminders = db.get_reminders(user.id)
         if not reminders:
-            await update.message.reply_text("Нет напоминаний для удаления.", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(t(lang, 'none_to_delete'), reply_markup=kb)
             return
         try:
             target = reminders[idx]
         except IndexError:
-            await update.message.reply_text("Столько напоминаний нет.", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(t(lang, 'ordinal_none'), reply_markup=kb)
             return
         sched.remove_job(target["id"], target["type"])
         db.delete_reminder(target["id"], user.id)
-        await update.message.reply_text(f"Удалил: «{target['message']}»", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text(t(lang, 'deleted', msg=target['message']), reply_markup=kb)
         return
 
+    # delete all
     if any(kw in lower for kw in INTENT_DELETE_ALL):
         reminders = db.get_reminders(user.id)
         if not reminders:
-            await update.message.reply_text("Нет напоминаний для удаления.", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(t(lang, 'none_to_delete'), reply_markup=kb)
             return
         for r in reminders:
             sched.remove_job(r["id"], r["type"])
             db.delete_reminder(r["id"], user.id)
-        await update.message.reply_text(f"Удалил все напоминания ({len(reminders)} шт.)", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text(t(lang, 'all_deleted', count=len(reminders)), reply_markup=kb)
         return
 
+    # list reminders
     if any(kw in lower for kw in INTENT_LIST):
-        await show_reminders(update, user.id)
+        await show_reminders(update, user.id, lang)
         return
 
+    # delete by number
     m = INTENT_DELETE_N.search(lower)
     if m:
         rid = int(next(g for g in m.groups()[2:] if g is not None))
@@ -407,11 +448,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         if target:
             sched.remove_job(rid, target["type"])
             db.delete_reminder(rid, user.id)
-            await update.message.reply_text(f"Удалил: «{target['message']}»", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(t(lang, 'deleted', msg=target['message']), reply_markup=kb)
         else:
-            await update.message.reply_text(f"Напоминание #{rid} не найдено.", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(t(lang, 'not_found_id', id=rid), reply_markup=kb)
         return
 
+    # greeting
     _has_reminder_intent = re.search(r"напомни|напоминай|через\s+\d|через\s+[а-я]", lower)
     if not _has_reminder_intent and re.search(
         r"^\s*(привет|прив|приветик|хай|хей|здравствуй|здарова|здорово|"
@@ -421,16 +463,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         lower
     ):
         import random
-        replies = [
+        replies_ru = [
             "Привет! Напиши что и когда напомнить 👇",
             "Хей! Чё напомнить?",
             "Салам! Говори — что и когда 🕐",
             "Йоу! Ставим напоминание?",
             "Привет-привет 👋 Пиши что напомнить",
         ]
-        await update.message.reply_text(random.choice(replies), reply_markup=MAIN_KEYBOARD)
+        replies_en = [
+            "Hey! What should I remind you about? 👇",
+            "Hi! Tell me what and when 🕐",
+            "Hello! Setting a reminder?",
+            "Hey there 👋 Write what to remind you",
+        ]
+        replies = replies_en if lang == 'en' else replies_ru
+        await update.message.reply_text(random.choice(replies), reply_markup=kb)
         return
 
+    # short replies
     _suffix = r"(\s+(бро|бра|брат|друг|чел|ман|дружище|чувак|красавчик|топ|👍|🙏))?\s*$"
     if re.search(
         r"^\s*(спасиб\w*|пасиб\w*|спс|сяп|благодарю|thanks|thank you|ок|окей|ok|okay|"
@@ -438,13 +488,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         r"норм|нормально|ладно|договорились|давай|пока|до свидания|чао|bye)" + _suffix,
         lower
     ):
-        await update.message.reply_text("👍", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("👍", reply_markup=kb)
         return
 
+    # parse reminder
     user_tz = user_row["timezone"] if user_row else None
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
-    # Разбиваем "через X ..., а/и через Y ..." на отдельные строки
     expanded = []
     for line in lines:
         parts = re.split(r',?\s+(?:а|и)\s+(?=через\s)', line, flags=re.IGNORECASE)
@@ -459,6 +509,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         else:
             expanded.append(line)
     lines = expanded
+
     results = []
     for line in lines:
         parsed = reminder_parser.parse(line, user_tz=user_tz)
@@ -467,13 +518,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
     if not results:
         parsed = reminder_parser.parse(lines[0] if lines else text, user_tz=user_tz)
-        await update.message.reply_text(parsed["error"], reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text(parsed["error"], reply_markup=kb)
         return
 
-    # Проверка длины (по первой распознанной строке)
     ok, err = middleware.check_message_length(text)
     if not ok:
-        await update.message.reply_text(err, reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text(err, reply_markup=kb)
         return
 
     bot = context.bot
@@ -482,7 +532,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     for _, parsed in results:
         ok, err = middleware.check_new_reminder(user.id)
         if not ok:
-            await update.message.reply_text(err, reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text(err, reply_markup=kb)
             return
 
         reminder_id = db.add_reminder(
@@ -500,25 +550,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             if parsed.get("next_fire"):
                 start_date = datetime.fromtimestamp(parsed["next_fire"], tz=timezone.utc)
             sched.add_recurring_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["interval_seconds"], start_date=start_date)
-            interval_str = format_interval(parsed["interval_seconds"])
+            interval_str = format_interval(parsed["interval_seconds"], lang)
             if start_date:
                 dt = _local_dt(parsed["next_fire"], user.id)
-                reply_lines.append(f"🔁 Каждые {interval_str} с {dt.strftime('%H:%M')}: «{parsed['message']}»")
+                reply_lines.append(t(lang, 'confirm_recurring_from', interval=interval_str, time=dt.strftime('%H:%M'), msg=parsed['message']))
             else:
-                reply_lines.append(f"🔁 Каждые {interval_str}: «{parsed['message']}»")
+                reply_lines.append(t(lang, 'confirm_recurring', interval=interval_str, msg=parsed['message']))
 
         elif parsed["type"] == "once":
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
             dt = _local_dt(parsed["next_fire"], user.id)
-            reply_lines.append(f"⏰ В {dt.strftime('%H:%M %d.%m')}: «{parsed['message']}»")
+            reply_lines.append(t(lang, 'confirm_once', time=dt.strftime('%H:%M %d.%m'), msg=parsed['message']))
 
-    await update.message.reply_text("\n".join(reply_lines) + " ✅", reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text("\n".join(reply_lines) + " ✅", reply_markup=kb)
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.register_user(user.id, user.username or "", user.first_name or "")
 
     user_row = db.get_user(user.id)
+    lang = get_lang(user_row)
+
     if user_row and user_row["is_banned"]:
         return
 
@@ -536,11 +588,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = transcription.text.strip()
     except Exception as e:
         logger.error(f"Groq transcription error: {e}")
-        await update.message.reply_text("Не смог распознать голосовое 😕", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text(t(lang, 'voice_fail'), reply_markup=get_keyboard(lang))
         return
 
     if not text:
-        await update.message.reply_text("Не смог распознать голосовое 😕", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text(t(lang, 'voice_fail'), reply_markup=get_keyboard(lang))
         return
 
     await handle_message(update, context, _text=text)
