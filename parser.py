@@ -493,27 +493,36 @@ def parse(text: str, user_tz: str | None = None) -> dict:
     ))
 
     if is_once:
-        next_fire = _parse_once_delta(lower, tz)
-
         # normalize
         text_norm = _normalize(text_clean)
+
+        # Если есть "о том, что" — парсим время только из части ДО неё,
+        # чтобы "завтра" в контенте не перехватывалось как дата напоминания
+        _content_marker = re.search(r'\bо\s+том,?\s+что\b|\bпро\s+то,?\s+что\b', lower)
+        lower_for_time = lower[:_content_marker.start()] if _content_marker else lower
+        text_for_abs = text_clean[:_content_marker.start()] if _content_marker else text_clean
+
+        next_fire = _parse_once_delta(lower_for_time, tz)
 
         # Если время задано именованным днём (завтра/послезавтра/следующую/день недели),
         # не вырезаем "через X" из тела — оно может быть частью сообщения
         _named_day = bool(
-            re.search(r'\bзавтра\b|\bпослезавтра\b|\bсегодня\b|\bследующ', lower) or
-            re.search(r'\bв\s+(?:' + _WEEKDAY_PAT + r')\b', lower)
+            re.search(r'\bзавтра\b|\bпослезавтра\b|\bсегодня\b|\bследующ', lower_for_time) or
+            re.search(r'\bв\s+(?:' + _WEEKDAY_PAT + r')\b', lower_for_time)
         )
 
         if next_fire is None:
-            next_fire = _parse_once_absolute(text_clean, tz)
+            next_fire = _parse_once_absolute(text_for_abs, tz)
             msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
         elif _named_day:
             # Защита контента после "о том, что" / "про то, что"
-            content_m = re.search(r'\bо\s+том,?\s+что\b|\bпро\s+то,?\s+что\b', text_norm, re.IGNORECASE)
-            if content_m:
-                prefix = re.sub(_TIME_STRIP, "", text_norm[:content_m.start()], flags=re.IGNORECASE)
-                msg = prefix + text_norm[content_m.start():]
+            if _content_marker:
+                content_m_norm = re.search(r'\bо\s+том,?\s+что\b|\bпро\s+то,?\s+что\b', text_norm, re.IGNORECASE)
+                if content_m_norm:
+                    prefix = re.sub(_TIME_STRIP, "", text_norm[:content_m_norm.start()], flags=re.IGNORECASE)
+                    msg = prefix + text_norm[content_m_norm.start():]
+                else:
+                    msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
             else:
                 msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
         else:
