@@ -592,6 +592,12 @@ def _parse_en_delta(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
         ts = _resolve_en_time(d, lower)
         return ts if ts is not None else d.replace(hour=9, minute=0, second=0, microsecond=0).timestamp()
 
+    # "in a couple (of) hours" / "in a few days"
+    m_couple = re.search(rf'\bin\s+(?:a\s+)?(?:couple|few)(?:\s+of)?\s+({_EN_UNIT_PAT})\b', lower)
+    if m_couple and m_couple.group(1) in EN_UNITS:
+        num = 2 if 'couple' in lower else 3
+        return time.time() + num * EN_UNITS[m_couple.group(1)]
+
     # "in X units"
     m = re.search(rf'\bin\s+([\w.]+)\s+({_EN_UNIT_PAT})\b', lower)
     if m:
@@ -668,7 +674,9 @@ def _extract_en_message(text: str) -> str:
         rf'\bnext\s+(?:{_EN_WD_PAT})\b',
         rf'\b(?:on\s+)?(?:{_EN_WD_PAT})\b',
         r'\bin\s+the\s+(?:morning|afternoon|evening)\b',
-        r'\b(?:tonight|morning|afternoon|evening|noon|midnight|lunch)\b',
+        r'\bat\s+(?:noon|midnight|lunch)\b',
+        rf'\bin\s+(?:a\s+)?(?:couple|few)(?:\s+of)?\s+(?:{_EN_UNIT_PAT})\b',
+        r'\b(?:tonight|morning|afternoon|evening|noon|midnight)\b',
         rf'\bevery\s+(?:[\w.]+\s+)?(?:{_EN_UNIT_PAT})\b',
         r'\bevery\s+hour\b|\bevery\s+minute\b|\bevery\s+day\b',
         r'\bdaily\b|\bweekly\b|\bhourly\b',
