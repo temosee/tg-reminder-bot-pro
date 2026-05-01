@@ -479,10 +479,267 @@ def _extract_message(text: str) -> str:
         result = re.sub(r"\s{2,}", " ", result)
     return result.strip(" ,.!?…")
 
+# EN parsing
+
+_RE_LATIN    = re.compile(r'[a-zA-Z]')
+_RE_CYRILLIC = re.compile(r'[а-яёА-ЯЁ]')
+
+def _detect_lang(text: str) -> str:
+    return 'en' if len(_RE_LATIN.findall(text)) > len(_RE_CYRILLIC.findall(text)) else 'ru'
+
+EN_UNITS = {
+    "second": 1,  "seconds": 1,  "sec": 1,  "secs": 1,
+    "minute": 60, "minutes": 60, "min": 60, "mins": 60,
+    "hour":  3600,"hours":  3600,"hr":  3600,"hrs":  3600,
+    "day":  86400,"days":  86400,
+    "week": 604800,"weeks": 604800,
+    "month": 2592000,"months": 2592000,
+}
+
+EN_WORD_NUMS = {
+    "a": 1,"an": 1,"one": 1,"two": 2,"three": 3,"four": 4,"five": 5,
+    "six": 6,"seven": 7,"eight": 8,"nine": 9,"ten": 10,
+    "fifteen": 15,"twenty": 20,"thirty": 30,"couple": 2,"few": 3,"half": 0.5,
+}
+
+EN_TOD = {
+    "in the morning": 8, "morning": 8,
+    "in the afternoon": 13, "afternoon": 13, "at lunch": 13, "lunch": 13,
+    "in the evening": 17, "evening": 17,
+    "at night": 22, "night": 22, "tonight": 22,
+    "at noon": 12, "noon": 12,
+    "at midnight": 0, "midnight": 0,
+}
+
+EN_WEEKDAYS = {
+    "monday": 0,"mon": 0,
+    "tuesday": 1,"tue": 1,"tues": 1,
+    "wednesday": 2,"wed": 2,
+    "thursday": 3,"thu": 3,"thur": 3,"thurs": 3,
+    "friday": 4,"fri": 4,
+    "saturday": 5,"sat": 5,
+    "sunday": 6,"sun": 6,
+}
+
+_EN_UNIT_PAT = "|".join(sorted(EN_UNITS, key=len, reverse=True))
+_EN_WD_PAT   = "|".join(sorted(EN_WEEKDAYS, key=len, reverse=True))
+
+def _parse_en_num(s: str) -> float | None:
+    s = s.strip().lower()
+    if s in EN_WORD_NUMS:
+        return EN_WORD_NUMS[s]
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+def _resolve_en_tod(lower: str) -> int | None:
+    for phrase, h in sorted(EN_TOD.items(), key=lambda x: -len(x[0])):
+        if re.search(r'\b' + re.escape(phrase) + r'\b', lower):
+            return h
+    return None
+
+def _resolve_en_time(base_day: datetime, lower: str) -> float | None:
+    m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
+    if m:
+        return base_day.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0).timestamp()
+    m = re.search(r'\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b', lower)
+    if m:
+        h, mn = int(m.group(1)), int(m.group(2) or 0)
+        if m.group(3) == 'pm' and h != 12: h += 12
+        elif m.group(3) == 'am' and h == 12: h = 0
+        return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
+    h = _resolve_en_tod(lower)
+    if h is not None:
+        return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
+    return None
+
+def _parse_en_delta(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
+    lower = text.lower().strip()
+
+    if re.search(r'\bday\s+after\s+tomorrow\b', lower):
+        d = datetime.now(tz=tz) + timedelta(days=2)
+        ts = _resolve_en_time(d, lower)
+        return ts if ts is not None else time.time() + 172800
+
+    if re.search(r'\btomorrow\b', lower):
+        d = datetime.now(tz=tz) + timedelta(days=1)
+        ts = _resolve_en_time(d, lower)
+        return ts if ts is not None else time.time() + 86400
+
+    if re.search(r'\btoday\b', lower):
+        d = datetime.now(tz=tz)
+        ts = _resolve_en_time(d, lower)
+        if ts is not None:
+            if ts < time.time(): ts += 86400
+            return ts
+        return None
+
+    m_next = re.search(r'\bnext\s+(' + _EN_WD_PAT + r')\b', lower)
+    if m_next:
+        wd = EN_WEEKDAYS[m_next.group(1)]
+        now = datetime.now(tz=tz)
+        days_ahead = (wd - now.weekday()) % 7 or 7
+        days_ahead += 7
+        d = now + timedelta(days=days_ahead)
+        ts = _resolve_en_time(d, lower)
+        return ts if ts is not None else d.replace(hour=9, minute=0, second=0, microsecond=0).timestamp()
+
+    m_wd = re.search(r'\b(?:on\s+)?(' + _EN_WD_PAT + r')\b', lower)
+    if m_wd:
+        wd = EN_WEEKDAYS[m_wd.group(1)]
+        d = _next_weekday(wd, tz)
+        ts = _resolve_en_time(d, lower)
+        return ts if ts is not None else d.replace(hour=9, minute=0, second=0, microsecond=0).timestamp()
+
+    # "in X units"
+    m = re.search(rf'\bin\s+([\w.]+)\s+({_EN_UNIT_PAT})\b', lower)
+    if m:
+        num = _parse_en_num(m.group(1))
+        unit = m.group(2)
+        if num is not None and unit in EN_UNITS:
+            return time.time() + num * EN_UNITS[unit]
+
+    # "in an hour" / "in a minute" etc (no explicit number word)
+    m2 = re.search(rf'\bin\s+(a|an)\s+({_EN_UNIT_PAT})\b', lower)
+    if m2 and m2.group(2) in EN_UNITS:
+        return time.time() + EN_UNITS[m2.group(2)]
+
+    return None
+
+def _parse_en_absolute(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
+    lower = text.lower().strip()
+
+    def _tod_tomorrow(h: int, mn: int = 0) -> float:
+        now = datetime.now(tz=tz)
+        t = now.replace(hour=h, minute=mn, second=0, microsecond=0)
+        if t.timestamp() < time.time(): t += timedelta(days=1)
+        return t.timestamp()
+
+    m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
+    if m: return _tod_tomorrow(int(m.group(1)), int(m.group(2)))
+
+    m = re.search(r'\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b', lower)
+    if m:
+        h, mn = int(m.group(1)), int(m.group(2) or 0)
+        if m.group(3) == 'pm' and h != 12: h += 12
+        elif m.group(3) == 'am' and h == 12: h = 0
+        return _tod_tomorrow(h, mn)
+
+    h = _resolve_en_tod(lower)
+    if h is not None: return _tod_tomorrow(h)
+
+    return None
+
+def _parse_en_interval(text: str) -> int | None:
+    lower = text.lower().strip()
+    if re.search(r'\bevery\s+hour\b|\bhourly\b', lower): return 3600
+    if re.search(r'\bevery\s+minute\b', lower): return 60
+    if re.search(r'\bevery\s+day\b|\bdaily\b', lower): return 86400
+    if re.search(r'\bevery\s+week\b|\bweekly\b', lower): return 604800
+
+    m = re.search(rf'\bevery\s+([\w.]+)\s+({_EN_UNIT_PAT})\b', lower)
+    if m:
+        num = _parse_en_num(m.group(1))
+        unit = m.group(2)
+        if num is not None and unit in EN_UNITS:
+            return int(num * EN_UNITS[unit])
+
+    m2 = re.search(rf'\bonce\s+(?:every|a|an)\s+({_EN_UNIT_PAT})\b', lower)
+    if m2 and m2.group(1) in EN_UNITS:
+        return EN_UNITS[m2.group(1)]
+
+    return None
+
+def _extract_en_message(text: str) -> str:
+    result = text.strip()
+    result = re.sub(
+        r"(?:please\s+)?(?:remind\s+me\s+(?:to\s+)?|set\s+(?:a\s+)?reminder\s+(?:for\s+|to\s+)?|"
+        r"don'?t\s+forget\s+(?:to\s+)?|let\s+me\s+know\s+(?:to\s+)?)",
+        "", result, flags=re.IGNORECASE
+    ).strip()
+    # Strip time expressions
+    strips = [
+        rf'\bin\s+[\w.]+\s+(?:{_EN_UNIT_PAT})\b',
+        rf'\bin\s+(?:a|an)\s+(?:{_EN_UNIT_PAT})\b',
+        r'\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b',
+        r'\bday\s+after\s+tomorrow\b',
+        r'\btomorrow\b', r'\btoday\b',
+        rf'\bnext\s+(?:{_EN_WD_PAT})\b',
+        rf'\b(?:on\s+)?(?:{_EN_WD_PAT})\b',
+        r'\bin\s+the\s+(?:morning|afternoon|evening)\b',
+        r'\b(?:tonight|morning|afternoon|evening|noon|midnight|lunch)\b',
+        rf'\bevery\s+(?:[\w.]+\s+)?(?:{_EN_UNIT_PAT})\b',
+        r'\bevery\s+hour\b|\bevery\s+minute\b|\bevery\s+day\b',
+        r'\bdaily\b|\bweekly\b|\bhourly\b',
+    ]
+    for pat in strips:
+        result = re.sub(pat, "", result, flags=re.IGNORECASE)
+    result = re.sub(r'\s+', ' ', result).strip(' ,.!?')
+    result = re.sub(r'^to\s+', '', result, flags=re.IGNORECASE).strip(' ,.!?')
+    return result or "reminder"
+
+def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
+    result = {"type": None, "message": None, "interval_seconds": None, "next_fire": None, "error": None}
+    lower = text.lower().strip()
+
+    is_recurring = bool(re.search(
+        r'\bevery\s+|\bdaily\b|\bweekly\b|\bhourly\b|remind\s+me\s+every|once\s+(?:a|every)',
+        lower
+    ))
+
+    if is_recurring:
+        interval = _parse_en_interval(lower)
+        if interval is None:
+            result["error"] = "I didn't understand the interval. Try: «remind me every 2 hours» or «every 30 minutes drink water»"
+            return result
+        first_fire = _parse_en_absolute(text, tz)
+        msg = _extract_en_message(text)
+        result["type"] = "recurring"
+        result["interval_seconds"] = interval
+        result["next_fire"] = first_fire
+        result["message"] = msg
+        return result
+
+    is_once = bool(re.search(
+        r"remind\s+me\b|set\s+(?:a\s+)?reminder|don'?t\s+forget|let\s+me\s+know",
+        lower
+    ))
+
+    if is_once:
+        next_fire = _parse_en_delta(lower, tz)
+        if next_fire is None:
+            next_fire = _parse_en_absolute(text, tz)
+        if next_fire is None:
+            result["error"] = (
+                "I didn't understand the time. Try:\n"
+                "• remind me in 30 minutes to drink water\n"
+                "• remind me tomorrow at 9am to call mom\n"
+                "• remind me every 2 hours to stretch"
+            )
+            return result
+        msg = _extract_en_message(text)
+        result["type"] = "once"
+        result["next_fire"] = next_fire
+        result["message"] = msg
+        return result
+
+    result["error"] = (
+        "I didn't understand. Try:\n"
+        "• remind me in 30 minutes to drink water\n"
+        "• remind me tomorrow at 9am\n"
+        "• remind me every 2 hours to drink water"
+    )
+    return result
+
 def parse(text: str, user_tz: str | None = None) -> dict:
     text_clean = text.strip()
-    lower = _normalize(text_clean.lower())
     tz = _get_tz(user_tz)
+
+    if _detect_lang(text_clean) == 'en':
+        return _parse_en(text_clean, tz)
+
+    lower = _normalize(text_clean.lower())
 
     result = {
         "type": None,

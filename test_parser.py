@@ -123,6 +123,28 @@ tests = [
     ("напоминай каждый день в 8 утра делать зарядку",            "recurring", "делать зарядку",  DAY,   None),
     ("напоминай пить воду каждые 2 часа",                        "recurring", "пить воду",       2*HOUR, None),
     ("ставь напоминание раз в 3 дня поливать цветы",             "recurring", "поливать цветы",  3*DAY,  None),
+
+    ("remind me in 30 minutes to drink water",   "once", "drink water",       None, 30*MINUTE),
+    ("remind me in 2 hours to take a pill",      "once", "take a pill",       None, 2*HOUR),
+    ("remind me in 3 hours to drink milk",       "once", "drink milk",        None, 3*HOUR),
+    ("remind me in 1 day to call mom",           "once", "call mom",          None, DAY),
+    ("remind me tomorrow to buy groceries",      "once", "buy groceries",     None, DAY),
+    ("remind me tomorrow at 9am to go to gym",   "once", "go to gym",         None, None),
+    ("remind me today in the evening to check",  "once", "check",             None, None),
+    ("don't forget to call John in 2 hours",     "once", "call John",         None, 2*HOUR),
+    ("set a reminder for tomorrow morning to run","once","run",               None, None),
+    ("let me know in 15 minutes",                "once", "reminder",          None, 15*MINUTE),
+
+    ("remind me at 15:00 to call mom",           "once", "call mom",          None, None),
+    ("remind me at 9am to do workout",           "once", "do workout",        None, None),
+    ("remind me at 10pm to take medicine",       "once", "take medicine",     None, None),
+    ("set a reminder at 8:30 to wake up",        "once", "wake up",           None, None),
+
+    ("remind me every 2 hours to drink water",   "recurring", "drink water",  2*HOUR, None),
+    ("remind me every 30 minutes to stretch",    "recurring", "stretch",      30*MINUTE, None),
+    ("remind me every day to exercise",          "recurring", "exercise",     DAY,    None),
+    ("every hour check email",                   "recurring", "check email",  HOUR,   None),
+    ("every 20 minutes drink water",             "recurring", "drink water",  20*MINUTE, None),
 ]
 
 ok = fail = 0
