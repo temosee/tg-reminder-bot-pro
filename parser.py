@@ -89,7 +89,11 @@ def _normalize(text: str) -> str:
         (r"\bночкой\b",   "ночью"),
         (r"\bполчас[аик]*\b", "30 минут"),
         (r"\bпол\s+час[аик]*\b", "30 минут"),
-        (r"\bбудильник\s+на\b", "в"),
+        (r"\bбудильник\b", "напоминание"),      # будильник → напоминание (trigger + normalize)
+        (r"\bна\s+(\d{1,2}:\d{2})\b", r"в \1"),                              # на 23:00 → в 23:00
+        (r"\bна\s+(\d{1,2})\s+(час)", r"в \1 \2"),                          # на 7 часов → в 7 часов
+        (r"\bна\s+(\d{1,2})\s+(утра|дня|вечера|ночи)\b", r"в \1 \2"),       # на 7 утра → в 7 утра
+        (r"\bна\s+(?=завтра\b|сегодня\b|послезавтра\b)", ""),               # на завтра → завтра
         (r"\bчасо\b", "часов"),
         (r"\bминутк?\b", "минут"),
     ]
@@ -400,9 +404,9 @@ _TIME_STRIP = (
 def _extract_message(text: str) -> str:
     """Убирает служебные слова и возвращает суть напоминания."""
     result = text
-    # "ставь/хочу/поставь/добавь напоминание"
+    # "ставь/хочу/поставь/добавь напоминание/напоминалку"
     result = re.sub(
-        r"(можешь\s+)?(ставь|хочу|поставь|добавь|нужно|поставить|добавить)\s+напоминани[ея]\w*\s*",
+        r"(можешь\s+)?(ставь|хочу|поставь|добавь|нужно|поставить|добавить|мне\s+нужно)\s+напомина\w+\s*",
         "", result, flags=re.IGNORECASE
     )
     # "будильник [на]"
@@ -414,10 +418,10 @@ def _extract_message(text: str) -> str:
     )
     # Всё до и включая основной триггер
     # Убираем мусорные слова-паразиты
-    result = re.sub(r"\b(пожалуйста|блин|бля|ну|вот|типа|короч|кстати|просто|давай)\b", "", result, flags=re.IGNORECASE)
+    result = re.sub(r"\b(пожалуйста|блин|бля|ну|вот|типа|короч|кстати|просто|давай|ровно)\b", "", result, flags=re.IGNORECASE)
 
     trigger_pat = re.compile(
-        r"^(.*?)\b(напомни|напоминай|напомнить|напомнил[аи]?)\b[-\s]*(ка\b\s*)?\s*(мне\s*)?(пожалуйста\s*)?",
+        r"^(.*?)\b(напомни|напоминай|напомнить|напомнил[аи]?|дай\s+знать|нужно\s+напомнить)\b[-\s]*(ка\b\s*)?\s*(мне\s*)?(пожалуйста\s*)?",
         re.IGNORECASE
     )
     m = trigger_pat.match(result)
@@ -430,7 +434,7 @@ def _extract_message(text: str) -> str:
         result = after if after else before
     else:
         result = re.sub(r"\s{2,}", " ", result)
-    return result.strip(" ,.")
+    return result.strip(" ,.!?…")
 
 def parse(text: str, user_tz: str | None = None) -> dict:
     text_clean = text.strip()
@@ -467,18 +471,24 @@ def parse(text: str, user_tz: str | None = None) -> dict:
             r"каждые?\s+[\wа-яё.,]+(?:\s+[\wа-яё]+)?\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|недел[юьи]|недель)\b",
             "", text_norm_rec, flags=re.IGNORECASE
         )
+        # first fire time if specified
+        first_fire = _parse_once_absolute(text_clean, tz)
+
         msg = re.sub(_TIME_STRIP, "", msg, flags=re.IGNORECASE)
         msg = _extract_message(msg)
         result["type"] = "recurring"
         result["interval_seconds"] = interval
+        result["next_fire"] = first_fire
         result["message"] = msg or "напоминание"
         return result
 
     is_once = bool(re.search(
-        r"напомни\b|хочу напоминание|поставь напоминание|поставить напоминание|"
-        r"добавь напоминалку|добавить напоминалку|"
+        r"напомни\b|хочу напомина\w+|поставь напомина\w+|поставить напомина\w+|"
+        r"добавь напомина\w+|добавить напомина\w+|"
         r"не забудь напомнить|напомнить\b|напомнил[аи]?\b|нужно напомнить|"
-        r"хочу чтобы ты напомнил|можешь напомнить|можешь поставить напоминание",
+        r"нужно напомина\w+|мне нужно напомина\w+|"
+        r"хочу чтобы ты напомнил|можешь напомнить|можешь поставить напомина\w+|"
+        r"дай знать",
         lower
     ))
 
@@ -499,7 +509,13 @@ def parse(text: str, user_tz: str | None = None) -> dict:
             next_fire = _parse_once_absolute(text_clean, tz)
             msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
         elif _named_day:
-            msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
+            # Защита контента после "о том, что" / "про то, что"
+            content_m = re.search(r'\bо\s+том,?\s+что\b|\bпро\s+то,?\s+что\b', text_norm, re.IGNORECASE)
+            if content_m:
+                prefix = re.sub(_TIME_STRIP, "", text_norm[:content_m.start()], flags=re.IGNORECASE)
+                msg = prefix + text_norm[content_m.start():]
+            else:
+                msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
         else:
             msg = re.sub(_DELTA_STRIP, "", text_norm, flags=re.IGNORECASE)
 

@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 import zoneinfo
 
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
@@ -496,9 +496,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         db.increment_reminders_created(user.id)
 
         if parsed["type"] == "recurring":
-            sched.add_recurring_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["interval_seconds"])
+            start_date = None
+            if parsed.get("next_fire"):
+                start_date = datetime.fromtimestamp(parsed["next_fire"], tz=timezone.utc)
+            sched.add_recurring_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["interval_seconds"], start_date=start_date)
             interval_str = format_interval(parsed["interval_seconds"])
-            reply_lines.append(f"🔁 Каждые {interval_str}: «{parsed['message']}»")
+            if start_date:
+                dt = _local_dt(parsed["next_fire"], user.id)
+                reply_lines.append(f"🔁 Каждые {interval_str} с {dt.strftime('%H:%M')}: «{parsed['message']}»")
+            else:
+                reply_lines.append(f"🔁 Каждые {interval_str}: «{parsed['message']}»")
 
         elif parsed["type"] == "once":
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
