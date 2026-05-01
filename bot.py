@@ -1,5 +1,6 @@
 import logging
 import re
+import time as _time
 from datetime import datetime, timezone
 import zoneinfo
 
@@ -253,7 +254,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # snooze
     if query.data.startswith("snooze_"):
-        import time as _time
         _, rid_str, mins_str = query.data.split("_")
         reminder_id = int(rid_str)
         minutes = int(mins_str)
@@ -559,7 +559,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
         elif parsed["type"] == "once":
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
-            delta_secs = int(parsed["next_fire"] - __import__("time").time())
+            delta_secs = int(parsed["next_fire"] - _time.time())
             tz_is_utc = not user_row or user_row.get("timezone", "UTC") == "UTC"
             if tz_is_utc and 0 < delta_secs < 7 * 86400:
                 delta_str = format_interval(delta_secs, lang)
