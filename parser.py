@@ -224,6 +224,42 @@ def _parse_once_delta(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
             return ts
         return None  # "сегодня" без времени → не распознаём как дельту
 
+    _ORDINAL_TO_DAY = {
+        "первого": 1, "второго": 2, "третьего": 3,
+        "четвёртого": 4, "четвертого": 4, "пятого": 5, "шестого": 6,
+        "седьмого": 7, "восьмого": 8, "девятого": 9, "десятого": 10,
+        "одиннадцатого": 11, "двенадцатого": 12, "тринадцатого": 13,
+        "четырнадцатого": 14, "пятнадцатого": 15, "шестнадцатого": 16,
+        "семнадцатого": 17, "восемнадцатого": 18, "девятнадцатого": 19,
+        "двадцатого": 20, "двадцать первого": 21, "двадцать второго": 22,
+        "двадцать третьего": 23, "двадцать четвёртого": 24, "двадцать четвертого": 24,
+        "двадцать пятого": 25, "двадцать шестого": 26, "двадцать седьмого": 27,
+        "двадцать восьмого": 28, "двадцать девятого": 29,
+        "тридцатого": 30, "тридцать первого": 31,
+    }
+    _day_num = None
+    m_day_digit = re.search(r'\b(\d{1,2})(?:-?го|-?е|-?ое|-?ого)?\s+числ[а-яё]*\b', text)
+    m_day_word = re.search(r'\b(' + '|'.join(sorted(_ORDINAL_TO_DAY, key=len, reverse=True)) + r')\s+числ[а-яё]*\b', text)
+    if m_day_digit:
+        _day_num = int(m_day_digit.group(1))
+    elif m_day_word:
+        _day_num = _ORDINAL_TO_DAY[m_day_word.group(1)]
+    if _day_num and 1 <= _day_num <= 31:
+        now = datetime.now(tz=tz)
+        try:
+            target = now.replace(day=_day_num, hour=9, minute=0, second=0, microsecond=0)
+        except ValueError:
+            target = None
+        if target is None or target.timestamp() <= time.time():
+            try:
+                m, y = (now.month % 12 + 1, now.year + (1 if now.month == 12 else 0))
+                target = now.replace(year=y, month=m, day=_day_num, hour=9, minute=0, second=0, microsecond=0)
+            except ValueError:
+                target = None
+        if target:
+            ts = _resolve_time(target, text)
+            return ts if ts is not None else target.timestamp()
+
     m_next_wd = re.search(r"\bследующ(?:ую|ий|ее|его|ей)\s+(" + _WEEKDAY_PAT + r")\b", text)
     if m_next_wd:
         wd = WEEKDAYS_RU[m_next_wd.group(1)]
@@ -399,6 +435,13 @@ _TIME_STRIP = (
     r"|\bв\s+обед\b"
     r"|\bсегодня\b|\bзавтра\b|\bпослезавтра\b"
     rf"|{_WEEKDAY_STRIP}"
+    r"|\b\d{1,2}(?:-?го|-?е|-?ое|-?ого)?\s+числ[а-яё]*\b"
+    r"|(?:двадцать\s+(?:первого|второго|третьего|четвёртого|четвертого|пятого|шестого|седьмого|восьмого|девятого)"
+    r"|тридцать\s+первого"
+    r"|первого|второго|третьего|четвёртого|четвертого|пятого|шестого|седьмого|восьмого|девятого|десятого"
+    r"|одиннадцатого|двенадцатого|тринадцатого|четырнадцатого|пятнадцатого|шестнадцатого"
+    r"|семнадцатого|восемнадцатого|девятнадцатого|двадцатого|тридцатого)"
+    r"\s+числ[а-яё]*\b"
 )
 
 def _extract_message(text: str) -> str:
@@ -507,7 +550,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         # Если время задано именованным днём (завтра/послезавтра/следующую/день недели),
         # не вырезаем "через X" из тела — оно может быть частью сообщения
         _named_day = bool(
-            re.search(r'\bзавтра\b|\bпослезавтра\b|\bсегодня\b|\bследующ', lower_for_time) or
+            re.search(r'\bзавтра\b|\bпослезавтра\b|\bсегодня\b|\bследующ|\bчисл', lower_for_time) or
             re.search(r'\bв\s+(?:' + _WEEKDAY_PAT + r')\b', lower_for_time)
         )
 
