@@ -40,7 +40,7 @@ UNITS_TO_SECONDS = {
 TIME_OF_DAY = {
     "утром": 8, "утра": 8, "с утра": 8,
     "днём": 13, "дня": 13, "в обед": 13, "обед": 13, "обеда": 13,
-    "вечером": 17, "вечера": 17, "вечерком": 17,
+    "вечером": 17, "вечера": 17, "вечерком": 17, "ближе к вечеру": 18,
     "ночью": 22, "ночи": 22,
     "в полночь": 0, "полночь": 0, "полуночи": 0,
     "в полдень": 12, "полдень": 12, "полудня": 12,
@@ -220,6 +220,21 @@ def _parse_once_delta(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
             return ts
         return None  # "сегодня" без времени → не распознаём как дельту
 
+    m_next_wd = re.search(r"\bследующ(?:ую|ий|ее|его|ей)\s+(" + _WEEKDAY_PAT + r")\b", text)
+    if m_next_wd:
+        wd = WEEKDAYS_RU[m_next_wd.group(1)]
+        now = datetime.now(tz=tz)
+        days_ahead = (wd - now.weekday()) % 7
+        if days_ahead < 7:
+            days_ahead += 7  # "следующую" = всегда следующая неделя
+        if days_ahead == 0:
+            days_ahead = 7
+        target_day = now + timedelta(days=days_ahead)
+        ts = _resolve_time(target_day, text)
+        if ts is not None:
+            return ts
+        return target_day.replace(hour=9, minute=0, second=0, microsecond=0).timestamp()
+
     m_wd = re.search(r"\bв\s+(" + _WEEKDAY_PAT + r")\b", text)
     if m_wd:
         wd = WEEKDAYS_RU[m_wd.group(1)]
@@ -279,6 +294,23 @@ def _parse_once_delta(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
             if ts:
                 return ts
 
+    m_before = re.search(rf"за\s+({_NUM_PAT})\s+({_ALL_UNITS})\s+до\b", text)
+    if m_before:
+        num = _parse_number(m_before.group(1))
+        unit_str = m_before.group(2)
+        if num is not None:
+            mult = UNITS_TO_SECONDS.get(unit_str)
+            if mult is None:
+                for key, val in UNITS_TO_SECONDS.items():
+                    if unit_str.startswith(key[:3]):
+                        mult = val
+                        break
+            if mult:
+                offset = int(num * mult)
+                abs_ts = _parse_once_absolute(text, tz)
+                if abs_ts:
+                    return abs_ts - offset
+
     return None
 
 def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
@@ -335,8 +367,11 @@ def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | Non
     return None
 
 # Паттерн для удаления временны́х выражений из текста напоминания
-_TOD_PAT = r"утром|утра|с\s+утра|днём|в\s+обед|обед[а]?|вечером|вечера|вечерком|ночью|ночи|в\s+полночь|полночь|полуночи|в\s+полдень|полдень|полудня"
-_WEEKDAY_STRIP = r"в\s+(?:" + _WEEKDAY_PAT + r")"
+_TOD_PAT = r"утром|утра|с\s+утра|днём|в\s+обед|обед[а]?|вечером|вечера|вечерком|ближе\s+к\s+вечеру|ночью|ночи|в\s+полночь|полночь|полуночи|в\s+полдень|полдень|полудня"
+_WEEKDAY_STRIP = (
+    r"(?:в\s+)?следующ(?:ую|ий|ее|его|ей)\s+(?:" + _WEEKDAY_PAT + r")"
+    r"|в\s+(?:" + _WEEKDAY_PAT + r")"
+)
 
 # Числа (цифровые или словесные) для паттернов "обратного порядка"
 _WORD_NUMS = "|".join(re.escape(k) for k in WORD_NUMBERS.keys())
@@ -351,6 +386,7 @@ _DELTA_STRIP = (
     rf"|{_WEEKDAY_STRIP}"
     r"|\bв\s+\d{1,2}(?::\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?)?"
     rf"|\b(?:{_TOD_PAT})\b"
+    rf"|за\s+{_NUM_PAT}\s+(?:{_ALL_UNITS})\s+до(?:\s+(?!в\s+\d)[а-яёА-ЯЁ]+){{0,6}}"  # за N до [чего-то]
 )
 
 _TIME_STRIP = (
@@ -452,8 +488,17 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         # normalize
         text_norm = _normalize(text_clean)
 
+        # Если время задано именованным днём (завтра/послезавтра/следующую/день недели),
+        # не вырезаем "через X" из тела — оно может быть частью сообщения
+        _named_day = bool(
+            re.search(r'\bзавтра\b|\bпослезавтра\b|\bсегодня\b|\bследующ', lower) or
+            re.search(r'\bв\s+(?:' + _WEEKDAY_PAT + r')\b', lower)
+        )
+
         if next_fire is None:
             next_fire = _parse_once_absolute(text_clean, tz)
+            msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
+        elif _named_day:
             msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
         else:
             msg = re.sub(_DELTA_STRIP, "", text_norm, flags=re.IGNORECASE)

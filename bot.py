@@ -443,6 +443,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
     user_tz = user_row["timezone"] if user_row else None
     lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    # Разбиваем "через X ..., а/и через Y ..." на отдельные строки
+    expanded = []
+    for line in lines:
+        parts = re.split(r',?\s+(?:а|и)\s+(?=через\s)', line, flags=re.IGNORECASE)
+        if len(parts) > 1:
+            expanded.append(parts[0])
+            has_trigger = bool(re.search(r'\bнапомни\b|\bнапоминай\b', parts[0], re.IGNORECASE))
+            for p in parts[1:]:
+                p = p.strip()
+                if has_trigger and not re.search(r'\bнапомни\b|\bнапоминай\b', p, re.IGNORECASE):
+                    p = "напомни " + p
+                expanded.append(p)
+        else:
+            expanded.append(line)
+    lines = expanded
     results = []
     for line in lines:
         parsed = reminder_parser.parse(line, user_tz=user_tz)
