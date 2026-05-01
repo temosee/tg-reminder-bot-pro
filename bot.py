@@ -562,7 +562,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             dt = _local_dt(parsed["next_fire"], user.id)
             reply_lines.append(t(lang, 'confirm_once', time=dt.strftime('%H:%M %d.%m'), msg=parsed['message']))
 
-    await update.message.reply_text("\n".join(reply_lines) + " ✅", reply_markup=kb)
+    tz_warning = ""
+    if user_row and user_row.get("timezone", "UTC") == "UTC":
+        tz_warning = "\n\n⚠️ Город не задан — время показано в UTC. Напиши свой город: /timezone" if lang == "ru" \
+               else "\n\n⚠️ City not set — time shown in UTC. Set your city: /timezone"
+
+    await update.message.reply_text("\n".join(reply_lines) + " ✅" + tz_warning, reply_markup=kb)
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
