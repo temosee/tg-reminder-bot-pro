@@ -559,13 +559,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
         elif parsed["type"] == "once":
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
-            dt = _local_dt(parsed["next_fire"], user.id)
-            reply_lines.append(t(lang, 'confirm_once', time=dt.strftime('%H:%M %d.%m'), msg=parsed['message']))
+            delta_secs = int(parsed["next_fire"] - __import__("time").time())
+            tz_is_utc = not user_row or user_row.get("timezone", "UTC") == "UTC"
+            if tz_is_utc and 0 < delta_secs < 7 * 86400:
+                delta_str = format_interval(delta_secs, lang)
+                line = f"⏰ {'Через' if lang == 'ru' else 'In'} {delta_str}: «{parsed['message']}»"
+            else:
+                dt = _local_dt(parsed["next_fire"], user.id)
+                line = t(lang, 'confirm_once', time=dt.strftime('%H:%M %d.%m'), msg=parsed['message'])
+            reply_lines.append(line)
 
     tz_warning = ""
     if user_row and user_row.get("timezone", "UTC") == "UTC":
-        tz_warning = "\n\n⚠️ Город не задан — время показано в UTC. Напиши свой город: /timezone" if lang == "ru" \
-               else "\n\n⚠️ City not set — time shown in UTC. Set your city: /timezone"
+        tz_warning = "\n\n⚠️ Город не задан — для точного времени напиши город: /timezone" if lang == "ru" \
+               else "\n\n⚠️ City not set — write your city for exact times: /timezone"
 
     await update.message.reply_text("\n".join(reply_lines) + " ✅" + tz_warning, reply_markup=kb)
 
