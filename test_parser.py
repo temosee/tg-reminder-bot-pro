@@ -169,6 +169,29 @@ tests = [
     ("remind me at 7pm to call",                      "once", "call",             None, None),
     ("remind me at 9:30 am to wake up",               "once", "wake up",          None, None),
     ("remind me tomorrow at 8:00 pm to go out",       "once", "go out",           None, None),
+
+    ("remind me today at 7pm that tomorrow at 7am will be exam",
+                                                       "once", "tomorrow at 7am will be exam", None, None),
+    ("remind me at 8pm that in 3 days there is a meeting",
+                                                       "once", "in 3 days there is a meeting", None, None),
+    ("remind me on Friday that next Monday is deadline",
+                                                       "once", "next Monday is deadline",       None, None),
+    ("remind me tomorrow morning that today I have gym",
+                                                       "once", "today I have gym",              None, None),
+
+    ("напомни сегодня в 19:00 что завтра в 7 утра экзамен",
+                                                       "once", "завтра в 7 утра экзамен",       None, None),
+    ("напомни в пятницу что в понедельник дедлайн",
+                                                       "once", "в понедельник дедлайн",         None, None),
+    ("напомни завтра в 10:00 что через 3 дня сдача проекта",
+                                                       "once", "через 3 дня сдача проекта",     None, None),
+
+    ("можешь напомнить мне в субботу утром сходить в магазин",
+                                                       "once", "сходить в магазин",             None, None),
+    ("было бы круто если бы ты напомнил завтра вечером позвонить другу",
+                                                       "once", "позвонить другу",               None, None),
+    ("напомни мне пожалуйста через 2 часа выпить лекарство",
+                                                       "once", "выпить лекарство",              None, 2*HOUR),
 ]
 
 ok = fail = 0

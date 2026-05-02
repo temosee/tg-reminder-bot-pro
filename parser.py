@@ -716,9 +716,14 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
     ))
 
     if is_once:
-        next_fire = _parse_en_delta(lower, tz)
+        # "that" как маркер контента: "remind me at 8pm that tomorrow is exam"
+        _that = re.search(r'\bthat\b', lower)
+        lower_for_time = lower[:_that.start()] if _that else lower
+        text_for_time = text[:_that.start()] if _that else text
+
+        next_fire = _parse_en_delta(lower_for_time, tz)
         if next_fire is None:
-            next_fire = _parse_en_absolute(text, tz)
+            next_fire = _parse_en_absolute(text_for_time, tz)
         if next_fire is None:
             result["error"] = (
                 "I didn't understand the time. Try:\n"
@@ -727,7 +732,11 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
                 "• remind me every 2 hours to stretch"
             )
             return result
-        msg = _extract_en_message(text)
+
+        if _that:
+            msg = text[_that.end():].strip() or "reminder"
+        else:
+            msg = _extract_en_message(text)
         result["type"] = "once"
         result["next_fire"] = next_fire
         result["message"] = msg
@@ -805,26 +814,42 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         # normalize
         text_norm = _normalize(text_clean)
 
-        # Если есть "о том, что" — парсим время только из части ДО неё,
-        # чтобы "завтра" в контенте не перехватывалось как дата напоминания
         _content_marker = re.search(r'\bо\s+том,?\s+что\b|\bпро\s+то,?\s+что\b', lower)
-        lower_for_time = lower[:_content_marker.start()] if _content_marker else lower
-        text_for_abs = text_clean[:_content_marker.start()] if _content_marker else text_clean
+        # "что" as separator only if time follows
+        _chto_marker = re.search(
+            r'\bчто\s+(?:завтра|послезавтра|сегодня|через\s+\d|через\s+[а-яё]'
+            r'|в\s+\d|в\s+(?:' + _WEEKDAY_PAT + r')|утром|вечером|днём|ночью)',
+            lower
+        ) if not _content_marker else None
+
+        if _content_marker:
+            lower_for_time = lower[:_content_marker.start()]
+            text_for_abs   = text_clean[:_content_marker.start()]
+        elif _chto_marker:
+            lower_for_time = lower[:_chto_marker.start()]
+            text_for_abs   = text_clean[:_chto_marker.start()]
+        else:
+            lower_for_time = lower
+            text_for_abs   = text_clean
 
         next_fire = _parse_once_delta(lower_for_time, tz)
 
-        # Если время задано именованным днём (завтра/послезавтра/следующую/день недели),
-        # не вырезаем "через X" из тела — оно может быть частью сообщения
         _named_day = bool(
             re.search(r'\bзавтра\b|\bпослезавтра\b|\bсегодня\b|\bследующ|\bчисл', lower_for_time) or
             re.search(r'\bв\s+(?:' + _WEEKDAY_PAT + r')\b', lower_for_time)
         )
 
+        _chto_cut = (_chto_marker.start() + 4) if _chto_marker else None  # 4 = len("что ")
+
         if next_fire is None:
             next_fire = _parse_once_absolute(text_for_abs, tz)
-            msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
+            if _chto_marker and next_fire is not None:
+                msg = text_clean[_chto_cut:].strip()
+            else:
+                msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
+        elif _chto_marker:
+            msg = text_clean[_chto_cut:].strip()
         elif _named_day:
-            # Защита контента после "о том, что" / "про то, что"
             if _content_marker:
                 content_m_norm = re.search(r'\bо\s+том,?\s+что\b|\bпро\s+то,?\s+что\b', text_norm, re.IGNORECASE)
                 if content_m_norm:
