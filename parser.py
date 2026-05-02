@@ -540,15 +540,16 @@ def _resolve_en_tod(lower: str) -> int | None:
     return None
 
 def _resolve_en_time(base_day: datetime, lower: str) -> float | None:
-    m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
-    if m:
-        return base_day.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0).timestamp()
+    # am/pm первым — иначе "7:00 pm" матчится как "7:00" (AM)
     m = re.search(r'\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b', lower)
     if m:
         h, mn = int(m.group(1)), int(m.group(2) or 0)
         if m.group(3) == 'pm' and h != 12: h += 12
         elif m.group(3) == 'am' and h == 12: h = 0
         return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
+    m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
+    if m:
+        return base_day.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0).timestamp()
     h = _resolve_en_tod(lower)
     if h is not None:
         return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
@@ -622,15 +623,15 @@ def _parse_en_absolute(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
         if t.timestamp() < time.time(): t += timedelta(days=1)
         return t.timestamp()
 
-    m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
-    if m: return _tod_tomorrow(int(m.group(1)), int(m.group(2)))
-
     m = re.search(r'\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b', lower)
     if m:
         h, mn = int(m.group(1)), int(m.group(2) or 0)
         if m.group(3) == 'pm' and h != 12: h += 12
         elif m.group(3) == 'am' and h == 12: h = 0
         return _tod_tomorrow(h, mn)
+
+    m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
+    if m: return _tod_tomorrow(int(m.group(1)), int(m.group(2)))
 
     h = _resolve_en_tod(lower)
     if h is not None: return _tod_tomorrow(h)

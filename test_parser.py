@@ -164,6 +164,11 @@ tests = [
     ("every 20 minutes drink water",                  "recurring", "drink water",   20*MINUTE, None),
     ("every 3 hours take medicine",                   "recurring", "take medicine", 3*HOUR,    None),
     ("remind me every day at 8am to do workout",      "recurring", "do workout",    DAY,       None),
+
+    ("remind me to pick up pastries at 7:00 pm today","once", "pick up pastries", None, None),
+    ("remind me at 7pm to call",                      "once", "call",             None, None),
+    ("remind me at 9:30 am to wake up",               "once", "wake up",          None, None),
+    ("remind me tomorrow at 8:00 pm to go out",       "once", "go out",           None, None),
 ]
 
 ok = fail = 0
