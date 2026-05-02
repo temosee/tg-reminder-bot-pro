@@ -550,6 +550,9 @@ def _resolve_en_time(base_day: datetime, lower: str) -> float | None:
     m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
     if m:
         return base_day.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0).timestamp()
+    m = re.search(r'\bat\s+(\d{1,2})\b', lower)
+    if m and 0 <= int(m.group(1)) <= 23:
+        return base_day.replace(hour=int(m.group(1)), minute=0, second=0, microsecond=0).timestamp()
     h = _resolve_en_tod(lower)
     if h is not None:
         return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
@@ -633,6 +636,10 @@ def _parse_en_absolute(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
     m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
     if m: return _tod_tomorrow(int(m.group(1)), int(m.group(2)))
 
+    m = re.search(r'\bat\s+(\d{1,2})\b', lower)
+    if m and 0 <= int(m.group(1)) <= 23:
+        return _tod_tomorrow(int(m.group(1)), 0)
+
     h = _resolve_en_tod(lower)
     if h is not None: return _tod_tomorrow(h)
 
@@ -676,6 +683,7 @@ def _extract_en_message(text: str) -> str:
         rf'\b(?:on\s+)?(?:{_EN_WD_PAT})\b',
         r'\bin\s+the\s+(?:morning|afternoon|evening)\b',
         r'\bat\s+(?:noon|midnight|lunch)\b',
+        r'\bat\s+\d{1,2}\b',
         rf'\bin\s+(?:a\s+)?(?:couple|few)(?:\s+of)?\s+(?:{_EN_UNIT_PAT})\b',
         r'\b(?:tonight|morning|afternoon|evening|noon|midnight)\b',
         rf'\bevery\s+(?:[\w.]+\s+)?(?:{_EN_UNIT_PAT})\b',

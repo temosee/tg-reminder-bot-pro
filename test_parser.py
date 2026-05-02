@@ -169,6 +169,9 @@ tests = [
     ("remind me at 7pm to call",                      "once", "call",             None, None),
     ("remind me at 9:30 am to wake up",               "once", "wake up",          None, None),
     ("remind me tomorrow at 8:00 pm to go out",       "once", "go out",           None, None),
+    ("remind me to go to the shop at 12",             "once", "go to the shop",   None, None),
+    ("remind me at 9 to call",                        "once", "call",             None, None),
+    ("remind me tomorrow at 15 to submit",            "once", "submit",           None, None),
 
     ("remind me today at 7pm that tomorrow at 7am will be exam",
                                                        "once", "tomorrow at 7am will be exam", None, None),
