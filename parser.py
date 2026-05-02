@@ -623,8 +623,14 @@ def _parse_en_absolute(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
     def _tod_tomorrow(h: int, mn: int = 0) -> float:
         now = datetime.now(tz=tz)
         t = now.replace(hour=h, minute=mn, second=0, microsecond=0)
-        if t.timestamp() < time.time(): t += timedelta(days=1)
-        return t.timestamp()
+        if t.timestamp() >= time.time():
+            return t.timestamp()
+        # Try pm counterpart for 1-11 (e.g. "at 9" → 9pm if 9am already passed)
+        if 1 <= h <= 11:
+            t_pm = now.replace(hour=h + 12, minute=mn, second=0, microsecond=0)
+            if t_pm.timestamp() >= time.time():
+                return t_pm.timestamp()
+        return (t + timedelta(days=1)).timestamp()
 
     m = re.search(r'\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b', lower)
     if m:
@@ -638,7 +644,9 @@ def _parse_en_absolute(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
 
     m = re.search(r'\bat\s+(\d{1,2})\b', lower)
     if m and 0 <= int(m.group(1)) <= 23:
-        return _tod_tomorrow(int(m.group(1)), 0)
+        h = int(m.group(1))
+        # > 12 is unambiguous 24h; ≤ 12 goes through _tod_tomorrow for nearest-future am/pm
+        return _tod_tomorrow(h, 0)
 
     h = _resolve_en_tod(lower)
     if h is not None: return _tod_tomorrow(h)
