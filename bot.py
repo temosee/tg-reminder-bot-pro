@@ -581,6 +581,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
     bot = context.bot
     reply_lines = []
+    created_ids = []
 
     for _, parsed in results:
         ok, err = middleware.check_new_reminder(user.id)
@@ -597,6 +598,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             next_fire=parsed.get("next_fire"),
         )
         db.increment_reminders_created(user.id)
+        created_ids.append(reminder_id)
 
         if parsed["type"] == "recurring":
             start_date = None
@@ -621,7 +623,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         tz_warning = "\n\n⚠️ Город не задан — время показано в UTC. Напиши /timezone чтобы указать свой город." if lang == "ru" \
                else "\n\n⚠️ City not set — time shown in UTC. Type /timezone to set your city."
 
-    await update.message.reply_text("\n".join(reply_lines) + " ✅" + tz_warning, reply_markup=kb)
+    del_label = "🗑 Удалить" if lang == "ru" else "🗑 Delete"
+    confirm_inline = InlineKeyboardMarkup([
+        [InlineKeyboardButton(del_label, callback_data=f"del_{rid}")] for rid in created_ids
+    ])
+    await update.message.reply_text("\n".join(reply_lines) + " ✅" + tz_warning, reply_markup=confirm_inline)
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
