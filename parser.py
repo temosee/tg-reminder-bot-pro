@@ -620,13 +620,13 @@ def _parse_en_delta(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
 def _parse_en_absolute(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
     lower = text.lower().strip()
 
-    def _tod_tomorrow(h: int, mn: int = 0) -> float:
+    def _tod_tomorrow(h: int, mn: int = 0, nearest: bool = False) -> float:
         now = datetime.now(tz=tz)
         t = now.replace(hour=h, minute=mn, second=0, microsecond=0)
         if t.timestamp() >= time.time():
             return t.timestamp()
-        # Try pm counterpart for 1-11 (e.g. "at 9" → 9pm if 9am already passed)
-        if 1 <= h <= 11:
+        # nearest=True: try pm counterpart (for bare "at 9" without am/pm)
+        if nearest and 1 <= h <= 11:
             t_pm = now.replace(hour=h + 12, minute=mn, second=0, microsecond=0)
             if t_pm.timestamp() >= time.time():
                 return t_pm.timestamp()
@@ -637,16 +637,14 @@ def _parse_en_absolute(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
         h, mn = int(m.group(1)), int(m.group(2) or 0)
         if m.group(3) == 'pm' and h != 12: h += 12
         elif m.group(3) == 'am' and h == 12: h = 0
-        return _tod_tomorrow(h, mn)
+        return _tod_tomorrow(h, mn)  # explicit am/pm — no nearest fallback
 
     m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
     if m: return _tod_tomorrow(int(m.group(1)), int(m.group(2)))
 
     m = re.search(r'\bat\s+(\d{1,2})\b', lower)
     if m and 0 <= int(m.group(1)) <= 23:
-        h = int(m.group(1))
-        # > 12 is unambiguous 24h; ≤ 12 goes through _tod_tomorrow for nearest-future am/pm
-        return _tod_tomorrow(h, 0)
+        return _tod_tomorrow(int(m.group(1)), 0, nearest=True)
 
     h = _resolve_en_tod(lower)
     if h is not None: return _tod_tomorrow(h)

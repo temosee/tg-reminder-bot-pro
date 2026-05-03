@@ -144,6 +144,16 @@ def _get_user_tz(user_id: int) -> zoneinfo.ZoneInfo:
 def _local_dt(ts: float, user_id: int) -> datetime:
     return datetime.fromtimestamp(ts, tz=_get_user_tz(user_id))
 
+def _fmt_time(dt: datetime, lang: str) -> str:
+    if lang == 'en':
+        return dt.strftime('%I:%M %p').lstrip('0')
+    return dt.strftime('%H:%M')
+
+def _fmt_datetime(dt: datetime, lang: str) -> str:
+    if lang == 'en':
+        return dt.strftime('%I:%M %p %d.%m').lstrip('0')
+    return dt.strftime('%H:%M %d.%m')
+
 def build_reminders_message(reminders, user_id: int, lang: str):
     lines = [t(lang, 'reminders_header')]
     buttons = []
@@ -153,7 +163,7 @@ def build_reminders_message(reminders, user_id: int, lang: str):
             label = t(lang, 'label_recurring', interval=interval_str, msg=r['message'])
         else:
             dt = _local_dt(r["next_fire"], user_id)
-            label = t(lang, 'label_once', time=dt.strftime('%H:%M %d.%m'), msg=r['message'])
+            label = t(lang, 'label_once', time=_fmt_datetime(dt, lang), msg=r['message'])
         lines.append(f"• {label}")
         buttons.append([InlineKeyboardButton(
             t(lang, 'btn_delete', msg=r['message'][:30]),
@@ -275,7 +285,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sched.add_once_job(context.bot, new_id, info["chat_id"], info["message"], new_fire)
             sched.PENDING_SNOOZE.pop(reminder_id, None)
             dt = _local_dt(new_fire, query.from_user.id)
-            await query.edit_message_text(t(lang, 'snoozed', msg=info['message'], time=dt.strftime('%H:%M')))
+            await query.edit_message_text(t(lang, 'snoozed', msg=info['message'], time=_fmt_time(dt, lang)))
         else:
             await query.edit_message_reply_markup(reply_markup=None)
         return
@@ -570,7 +580,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             interval_str = format_interval(parsed["interval_seconds"], lang)
             if start_date:
                 dt = _local_dt(parsed["next_fire"], user.id)
-                reply_lines.append(t(lang, 'confirm_recurring_from', interval=interval_str, time=dt.strftime('%H:%M'), msg=parsed['message']))
+                reply_lines.append(t(lang, 'confirm_recurring_from', interval=interval_str, time=_fmt_time(dt, lang), msg=parsed['message']))
             else:
                 reply_lines.append(t(lang, 'confirm_recurring', interval=interval_str, msg=parsed['message']))
 
@@ -578,7 +588,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
             dt = _local_dt(parsed["next_fire"], user.id)
-            reply_lines.append(t(lang, 'confirm_once', time=dt.strftime('%H:%M %d.%m'), msg=parsed['message']))
+            reply_lines.append(t(lang, 'confirm_once', time=_fmt_datetime(dt, lang), msg=parsed['message']))
 
     tz_warning = ""
     if user_row and user_row.get("timezone", "UTC") == "UTC":
