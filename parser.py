@@ -121,12 +121,18 @@ def _resolve_tod(text: str) -> int | None:
 def _resolve_time(base_day: datetime, text: str) -> float | None:
     """Возвращает timestamp для base_day с учётом времени из текста."""
     m_hm = re.search(r"в\s+(\d{1,2}):(\d{2})", text)
+    # "в N часов вечера/утра/дня/ночи" — с уточнением части дня
+    m_h_tod = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\s*(утра|дня|вечера|ночи)\b", text)
     m_h  = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\b", text)
     m_tod_d = re.search(r"в\s+(\d{1,2})(?::(\d{2}))?\s*(утра|дня|вечера|ночи)\b", text)
 
     if m_hm:
         h, mn = int(m_hm.group(1)), int(m_hm.group(2))
         return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
+    if m_h_tod:
+        h_raw, tod = int(m_h_tod.group(1)), m_h_tod.group(2)
+        h = h_raw % 12 if tod == "утра" else h_raw % 12 + 12
+        return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
     if m_tod_d:
         h_raw = int(m_tod_d.group(1))
         mn = int(m_tod_d.group(2) or 0)
@@ -374,6 +380,13 @@ def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | Non
     h_tod = _resolve_tod(lower)
     if h_tod is not None and not re.search(r"в\s+\d", lower):
         return _today_or_tomorrow(h_tod)
+
+    # "в N часов вечера/утра/дня/ночи" — с уточнением части дня
+    m_h_tod = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\s*(утра|дня|вечера|ночи)\b", lower)
+    if m_h_tod:
+        h_raw, tod = int(m_h_tod.group(1)), m_h_tod.group(2)
+        h = h_raw % 12 if tod == "утра" else h_raw % 12 + 12
+        return _today_or_tomorrow(h)
 
     # "в N часов/часа/час"
     m_h = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\b", lower)
@@ -820,6 +833,9 @@ def parse(text: str, user_tz: str | None = None) -> dict:
 
         msg = re.sub(_TIME_STRIP, "", msg, flags=re.IGNORECASE)
         msg = _extract_message(msg)
+        _cm = re.search(r'\bо\s+том,?\s+что\b|\bпро\s+то,?\s+что\b', msg, re.IGNORECASE)
+        if _cm:
+            msg = msg[_cm.end():].strip()
         result["type"] = "recurring"
         result["interval_seconds"] = interval
         result["next_fire"] = first_fire
