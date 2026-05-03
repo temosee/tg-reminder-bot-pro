@@ -38,7 +38,11 @@ def get_lang(user_row) -> str:
 
 def get_keyboard(lang: str):
     return ReplyKeyboardMarkup(
-        [[t(lang, 'btn_reminders'), t(lang, 'btn_stats')], [t(lang, 'btn_notes')]],
+        [
+            [t(lang, 'btn_reminders'), t(lang, 'btn_stats')],
+            [t(lang, 'btn_notes')],
+            [t(lang, 'btn_settings')],
+        ],
         resize_keyboard=True,
         input_field_placeholder=t(lang, 'placeholder'),
     )
@@ -273,6 +277,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # timezone change
+    if query.data == "settings_tz":
+        await query.edit_message_text(t(lang, 'settings_tz_prompt'))
+        context.user_data["awaiting_city"] = True
+        return
+
     # close
     if query.data == "close":
         await query.delete_message()
@@ -407,6 +417,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
         ]])
         await update.message.reply_text(t(lang, 'lang_ask'), reply_markup=inline_kb)
+        return
+
+    # settings
+    if lower.strip() in ("⚙️ настройки", "⚙️ settings"):
+        inline = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
+                InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+            ],
+            [InlineKeyboardButton("🌍 " + ("Сменить город/TZ" if lang == "ru" else "Change city/TZ"), callback_data="settings_tz")],
+        ])
+        await update.message.reply_text(t(lang, 'settings_title'), parse_mode="HTML", reply_markup=inline)
         return
 
     # stats
