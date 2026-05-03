@@ -220,7 +220,7 @@ def _parse_once_delta(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
         ts = _resolve_time(today, text)
         if ts is not None:
             if ts < time.time():
-                ts = time.time() + 10  # время уже прошло, но сказано "сегодня" — срабатываем немедленно
+                ts += 86400
             return ts
         return None  # "сегодня" без времени → не распознаём как дельту
 
@@ -575,7 +575,7 @@ def _parse_en_delta(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
         d = datetime.now(tz=tz)
         ts = _resolve_en_time(d, lower)
         if ts is not None:
-            if ts < time.time(): ts = time.time() + 10  # уже прошло сегодня — срабатываем немедленно
+            if ts < time.time(): ts += 86400
             return ts
         return None
 
