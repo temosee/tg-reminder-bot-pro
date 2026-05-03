@@ -550,6 +550,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
     # parse reminder
     user_tz = user_row["timezone"] if user_row else None
+    # use EN format if message is in EN
+    reply_lang = 'en' if reminder_parser._detect_lang(text) == 'en' else lang
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
     expanded = []
@@ -608,17 +610,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             if parsed.get("next_fire"):
                 start_date = datetime.fromtimestamp(parsed["next_fire"], tz=timezone.utc)
             sched.add_recurring_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["interval_seconds"], start_date=start_date)
-            interval_str = format_interval(parsed["interval_seconds"], lang)
+            interval_str = format_interval(parsed["interval_seconds"], reply_lang)
             if start_date:
                 dt = _local_dt(parsed["next_fire"], user.id)
-                reply_lines.append(t(lang, 'confirm_recurring_from', interval=interval_str, time=_fmt_time(dt, lang), msg=parsed['message']))
+                reply_lines.append(t(reply_lang, 'confirm_recurring_from', interval=interval_str, time=_fmt_time(dt, reply_lang), msg=parsed['message']))
             else:
-                reply_lines.append(t(lang, 'confirm_recurring', interval=interval_str, msg=parsed['message']))
+                reply_lines.append(t(reply_lang, 'confirm_recurring', interval=interval_str, msg=parsed['message']))
 
         elif parsed["type"] == "once":
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
             dt = _local_dt(parsed["next_fire"], user.id)
-            reply_lines.append(t(lang, 'confirm_once', time=_fmt_datetime(dt, lang), msg=parsed['message']))
+            reply_lines.append(t(reply_lang, 'confirm_once', time=_fmt_datetime(dt, reply_lang), msg=parsed['message']))
 
     tz_warning = ""
     if user_row and user_row.get("timezone", "UTC") == "UTC":

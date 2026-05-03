@@ -39,8 +39,8 @@ def init_db():
                     message          TEXT NOT NULL,
                     type             TEXT NOT NULL,
                     interval_seconds INTEGER,
-                    next_fire        REAL,
-                    created_at       REAL NOT NULL,
+                    next_fire        DOUBLE PRECISION,
+                    created_at       DOUBLE PRECISION NOT NULL,
                     category         TEXT DEFAULT NULL
                 )
             """)
@@ -54,6 +54,11 @@ def init_db():
             """)
             cur.execute("""
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'ru'
+            """)
+            cur.execute("""
+                ALTER TABLE reminders
+                    ALTER COLUMN next_fire TYPE DOUBLE PRECISION,
+                    ALTER COLUMN created_at TYPE DOUBLE PRECISION
             """)
         conn.commit()
 
