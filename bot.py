@@ -60,6 +60,10 @@ INTENT_NOTES_DELETE = re.compile(
     re.IGNORECASE | re.DOTALL
 )
 
+PENDING_AMPM: dict[int, str] = {}  # user_id → original reminder text awaiting am/pm
+
+_AMPM_REPLY = re.compile(r'\b(am|pm)\b', re.IGNORECASE)
+
 INTENT_LIST = [
     "мои напоминания", "список напоминаний", "покажи напоминания",
     "какие напоминания", "что стоит", "что у меня", "список",
@@ -370,6 +374,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     text = _text if _text is not None else update.message.text.strip()
     lower = text.lower()
 
+    # AM/PM reply
+    if user.id in PENDING_AMPM:
+        m_ap = _AMPM_REPLY.search(lower)
+        if m_ap:
+            original = PENDING_AMPM.pop(user.id)
+            suffix = m_ap.group(1).upper()
+            # заменяем "at N" → "at N AM/PM" в оригинальном тексте
+            fixed = re.sub(r'(\bat\s+\d{1,2})\b(?!\s*(?:am|pm|:\d))', rf'\1 {suffix}', original, flags=re.IGNORECASE)
+            await handle_message(update, context, _text=fixed)
+            return
+
     # lang switch
     if INTENT_LANG_CHANGE.search(lower):
         inline_kb = InlineKeyboardMarkup([[
@@ -545,7 +560,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
     if not results:
         parsed = reminder_parser.parse(lines[0] if lines else text, user_tz=user_tz)
-        await update.message.reply_text(parsed["error"], reply_markup=kb)
+        error_msg = parsed["error"]
+        if error_msg and "AM or PM" in error_msg:
+            PENDING_AMPM[user.id] = lines[0] if lines else text
+        await update.message.reply_text(error_msg, reply_markup=kb)
         return
 
     ok, err = middleware.check_message_length(text)
