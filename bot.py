@@ -113,6 +113,11 @@ INTENT_DELETE_ORDINAL = re.compile(
     re.IGNORECASE
 )
 
+INTENT_DELETE_LAST_EN = re.compile(
+    r"\b(delete|remove|cancel|drop)\s+(the\s+)?last(\s+reminder)?\b",
+    re.IGNORECASE
+)
+
 INTENT_DELETE_N = re.compile(
     r"(удали|удалить|убери|убрать|отмени|отменить)\s+"
     r"(напоминание\s+)?(?:#?(\d+)|номер\s+(\d+)|под\s+номером\s+(\d+))"
@@ -432,6 +437,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             sched.remove_job(r["id"], r["type"])
             db.delete_reminder(r["id"], user.id)
         await update.message.reply_text(t(lang, 'all_deleted', count=len(reminders)), reply_markup=kb)
+        return
+
+    # delete last EN
+    if INTENT_DELETE_LAST_EN.search(lower):
+        reminders = db.get_reminders(user.id)
+        if not reminders:
+            await update.message.reply_text(t(lang, 'none_to_delete'), reply_markup=kb)
+            return
+        last = reminders[-1]
+        sched.remove_job(last["id"], last["type"])
+        db.delete_reminder(last["id"], user.id)
+        await update.message.reply_text(t(lang, 'last_deleted', msg=last['message']), reply_markup=kb)
         return
 
     # list reminders
