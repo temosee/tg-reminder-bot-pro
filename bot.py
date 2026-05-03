@@ -623,7 +623,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         tz_warning = "\n\n⚠️ Город не задан — время показано в UTC. Напиши /timezone чтобы указать свой город." if lang == "ru" \
                else "\n\n⚠️ City not set — time shown in UTC. Type /timezone to set your city."
 
-    del_label = "🗑 Удалить" if lang == "ru" else "🗑 Delete"
+    del_label = "Удалить" if lang == "ru" else "Delete"
     confirm_inline = InlineKeyboardMarkup([
         [InlineKeyboardButton(del_label, callback_data=f"del_{rid}")] for rid in created_ids
     ])
