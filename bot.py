@@ -625,7 +625,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
     del_label = "Удалить" if lang == "ru" else "Delete"
     confirm_inline = InlineKeyboardMarkup([
-        [InlineKeyboardButton(del_label, callback_data=f"del_{rid}")] for rid in created_ids
+        [InlineKeyboardButton(del_label, callback_data=f"del_{rid}", style="destructive")] for rid in created_ids
     ])
     await update.message.reply_text("\n".join(reply_lines) + " ✅" + tz_warning, reply_markup=confirm_inline)
 
