@@ -702,9 +702,21 @@ def _extract_en_message(text: str) -> str:
     result = re.sub(r'^to\s+', '', result, flags=re.IGNORECASE).strip(' ,.!?')
     return result or "reminder"
 
+_EN_BARE_HOUR = re.compile(r'\bat\s+(\d{1,2})\b(?!\s*(?:am|pm|:\d))', re.IGNORECASE)
+
 def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
     result = {"type": None, "message": None, "interval_seconds": None, "next_fire": None, "error": None}
     lower = text.lower().strip()
+
+    # Bare "at N" (≤12) without am/pm — ambiguous, ask to clarify
+    m_bare = _EN_BARE_HOUR.search(lower)
+    if m_bare and int(m_bare.group(1)) <= 12:
+        h = int(m_bare.group(1))
+        result["error"] = (
+            f"Did you mean {h}:00 AM or {h}:00 PM?\n"
+            f"Please add AM or PM, e.g.: «at {h} AM» or «at {h} PM»"
+        )
+        return result
 
     is_recurring = bool(re.search(
         r'\bevery\s+|\bdaily\b|\bweekly\b|\bhourly\b|remind\s+me\s+every|once\s+(?:a|every)',

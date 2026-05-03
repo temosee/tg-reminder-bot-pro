@@ -14,6 +14,14 @@ def approx(ts, expected_delta, tolerance=5):
     """Проверяет что timestamp примерно соответствует NOW + delta."""
     return abs(ts - (NOW + expected_delta)) < tolerance
 
+def check_error(text, substr=""):
+    r = p.parse(text)
+    if not r.get("error"):
+        return [f"expected error, got type={r.get('type')!r} msg={r.get('message')!r}"]
+    if substr and substr.lower() not in r["error"].lower():
+        return [f"error doesn't mention {substr!r}: {r['error'][:80]}"]
+    return []
+
 def check(text, exp_type, exp_msg, exp_interval=None, exp_delta=None):
     r = p.parse(text)
     errors = []
@@ -169,8 +177,6 @@ tests = [
     ("remind me at 7pm to call",                      "once", "call",             None, None),
     ("remind me at 9:30 am to wake up",               "once", "wake up",          None, None),
     ("remind me tomorrow at 8:00 pm to go out",       "once", "go out",           None, None),
-    ("remind me to go to the shop at 12",             "once", "go to the shop",   None, None),
-    ("remind me at 9 to call",                        "once", "call",             None, None),
     ("remind me tomorrow at 15 to submit",            "once", "submit",           None, None),
 
     ("remind me today at 7pm that tomorrow at 7am will be exam",
@@ -197,9 +203,27 @@ tests = [
                                                        "once", "выпить лекарство",              None, 2*HOUR),
 ]
 
+error_tests = [
+    # bare number ≤12 without am/pm → must ask for clarification
+    ("remind me to go to the shop at 12", "AM or PM"),
+    ("remind me at 9 to call",            "AM or PM"),
+    ("remind every day at 8 to stretch",  "AM or PM"),
+]
+
 ok = fail = 0
 for text, exp_type, exp_msg, exp_interval, exp_delta in tests:
     errs = check(text, exp_type, exp_msg, exp_interval, exp_delta)
+    if errs:
+        fail += 1
+        print(f"[FAIL] {text!r}")
+        for e in errs:
+            print(f"       {e}")
+    else:
+        ok += 1
+        print(f"[OK]   {text!r}")
+
+for text, substr in error_tests:
+    errs = check_error(text, substr)
     if errs:
         fail += 1
         print(f"[FAIL] {text!r}")
