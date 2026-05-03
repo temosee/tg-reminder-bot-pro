@@ -11,7 +11,7 @@ import db
 
 logger = logging.getLogger(__name__)
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(job_defaults={"misfire_grace_time": 10, "coalesce": True})
 
 PENDING_SNOOZE = {}
 

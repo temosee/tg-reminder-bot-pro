@@ -1,3 +1,5 @@
+import asyncio
+import functools
 import logging
 import re
 import time as _time
@@ -25,6 +27,11 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+async def _run(func, *args, **kwargs):
+    """run blocking call in threadpool"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
 
 def get_lang(user_row) -> str:
     return (user_row.get('language') or 'ru') if user_row else 'ru'
@@ -251,13 +258,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    user_row = db.get_user(query.from_user.id)
+    user_row = await _run(db.get_user, query.from_user.id)
     lang = get_lang(user_row)
 
     # lang switch
     if query.data.startswith("lang_"):
         new_lang = query.data[5:]
-        db.update_language(query.from_user.id, new_lang)
+        await _run(db.update_language, query.from_user.id, new_lang)
         await query.edit_message_text(t(new_lang, 'lang_changed'))
         await context.bot.send_message(
             query.message.chat_id,
@@ -341,9 +348,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _text: str = None):
     user = update.effective_user
-    db.register_user(user.id, user.username or "", user.first_name or "")
+    await _run(db.register_user, user.id, user.username or "", user.first_name or "")
 
-    user_row = db.get_user(user.id)
+    user_row = await _run(db.get_user, user.id)
     lang = get_lang(user_row)
     kb = get_keyboard(lang)
 
@@ -354,9 +361,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     if context.user_data.get("awaiting_city"):
         city_input = (update.message.text or "").strip()
         await update.message.reply_text(t(lang, 'city_searching'))
-        tz, display = city_tz.city_to_timezone(city_input)
+        tz, display = await _run(city_tz.city_to_timezone, city_input)
         if tz:
-            db.update_timezone(user.id, tz)
+            await _run(db.update_timezone, user.id, tz)
             context.user_data.pop("awaiting_city", None)
             await update.message.reply_text(t(lang, 'city_set', display=display), reply_markup=kb)
             await _send_welcome(update, lang)
@@ -589,15 +596,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             await update.message.reply_text(err, reply_markup=kb)
             return
 
-        reminder_id = db.add_reminder(
-            user_id=user.id,
-            chat_id=update.effective_chat.id,
-            message=parsed["message"],
-            type_=parsed["type"],
-            interval_seconds=parsed.get("interval_seconds"),
-            next_fire=parsed.get("next_fire"),
+        reminder_id = await _run(db.add_reminder,
+            user.id, update.effective_chat.id, parsed["message"],
+            parsed["type"], parsed.get("interval_seconds"), parsed.get("next_fire"),
         )
-        db.increment_reminders_created(user.id)
+        await _run(db.increment_reminders_created, user.id)
         created_ids.append(reminder_id)
 
         if parsed["type"] == "recurring":
