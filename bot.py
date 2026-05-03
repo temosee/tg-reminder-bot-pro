@@ -514,9 +514,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         ]
         replies_en = [
             "Hey! What should I remind you about? 👇",
-            "Hi! Tell me what and when 🕐",
-            "Hello! Setting a reminder?",
-            "Hey there 👋 Write what to remind you",
+            "Hi! What do you need a reminder for?",
+            "Hello! Just say what to remind you and when 🕐",
+            "Hey there 👋 What's the reminder?",
         ]
         replies = replies_en if lang == 'en' else replies_ru
         await update.message.reply_text(random.choice(replies), reply_markup=kb)
