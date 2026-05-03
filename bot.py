@@ -365,24 +365,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         return
 
     # flood check
-    allowed, reason = middleware.check_message(user.id)
-    if not allowed:
-        if reason == "flood":
-            await update.message.reply_text(t(lang, 'flood'), reply_markup=kb)
-        return
+    if _text is None:
+        allowed, reason = middleware.check_message(user.id)
+        if not allowed:
+            if reason == "flood":
+                await update.message.reply_text(t(lang, 'flood'), reply_markup=kb)
+            return
 
     text = _text if _text is not None else update.message.text.strip()
     lower = text.lower()
 
     # AM/PM reply
-    if user.id in PENDING_AMPM:
+    _is_ampm_reply = bool(re.match(r'^\s*(am|pm)(\s+\w{0,15})?\s*$', lower, re.IGNORECASE))
+    if _is_ampm_reply or user.id in PENDING_AMPM:
         m_ap = _AMPM_REPLY.search(lower)
         if m_ap:
-            original = PENDING_AMPM.pop(user.id)
-            suffix = m_ap.group(1).upper()
-            # заменяем "at N" → "at N AM/PM" в оригинальном тексте
-            fixed = re.sub(r'(\bat\s+\d{1,2})\b(?!\s*(?:am|pm|:\d))', rf'\1 {suffix}', original, flags=re.IGNORECASE)
-            await handle_message(update, context, _text=fixed)
+            if user.id in PENDING_AMPM:
+                original = PENDING_AMPM.pop(user.id)
+                suffix = m_ap.group(1).upper()
+                fixed = re.sub(r'(\bat\s+\d{1,2})\b(?!\s*(?:am|pm|:\d))', rf'\1 {suffix}', original, flags=re.IGNORECASE)
+                await handle_message(update, context, _text=fixed)
+            else:
+                await update.message.reply_text(
+                    "I lost your reminder after a restart — please send it again with AM or PM.\n"
+                    "E.g.: «remind me at 8 PM to stretch»",
+                    reply_markup=kb
+                )
             return
 
     # lang switch
