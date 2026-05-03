@@ -721,20 +721,20 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
     result = {"type": None, "message": None, "interval_seconds": None, "next_fire": None, "error": None}
     lower = text.lower().strip()
 
-    # Bare "at N" (≤12) without am/pm — ambiguous, ask to clarify
+    is_recurring = bool(re.search(
+        r'\bevery\s+|\bdaily\b|\bweekly\b|\bhourly\b|remind\s+me\s+every|once\s+(?:a|every)',
+        lower
+    ))
+
+    # bare "at N" without am/pm — recurring asks, once picks nearest
     m_bare = _EN_BARE_HOUR.search(lower)
-    if m_bare and int(m_bare.group(1)) <= 12:
+    if m_bare and int(m_bare.group(1)) <= 12 and is_recurring:
         h = int(m_bare.group(1))
         result["error"] = (
             f"Did you mean {h}:00 AM or {h}:00 PM?\n"
             f"Please add AM or PM, e.g.: «at {h} AM» or «at {h} PM»"
         )
         return result
-
-    is_recurring = bool(re.search(
-        r'\bevery\s+|\bdaily\b|\bweekly\b|\bhourly\b|remind\s+me\s+every|once\s+(?:a|every)',
-        lower
-    ))
 
     if is_recurring:
         interval = _parse_en_interval(lower)

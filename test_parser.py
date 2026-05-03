@@ -178,6 +178,8 @@ tests = [
     ("remind me at 9:30 am to wake up",               "once", "wake up",          None, None),
     ("remind me tomorrow at 8:00 pm to go out",       "once", "go out",           None, None),
     ("remind me tomorrow at 15 to submit",            "once", "submit",           None, None),
+    ("remind me to go to the shop at 12",             "once", "go to the shop",   None, None),
+    ("remind me at 9 to call",                        "once", "call",             None, None),
 
     ("remind me today at 7pm that tomorrow at 7am will be exam",
                                                        "once", "tomorrow at 7am will be exam", None, None),
@@ -204,10 +206,9 @@ tests = [
 ]
 
 error_tests = [
-    # bare number ≤12 without am/pm → must ask for clarification
-    ("remind me to go to the shop at 12", "AM or PM"),
-    ("remind me at 9 to call",            "AM or PM"),
+    # bare number ≤12 without am/pm in RECURRING → must ask for clarification
     ("remind every day at 8 to stretch",  "AM or PM"),
+    ("remind me every week at 9 to call", "AM or PM"),
 ]
 
 ok = fail = 0
