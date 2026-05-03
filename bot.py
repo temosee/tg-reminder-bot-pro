@@ -614,7 +614,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
         elif parsed["type"] == "once":
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
-            sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
             dt = _local_dt(parsed["next_fire"], user.id)
             reply_lines.append(t(lang, 'confirm_once', time=_fmt_datetime(dt, lang), msg=parsed['message']))
 
