@@ -26,6 +26,7 @@ _ALIASES = {
     "хабар": "Хабаровск",
     "владик": "Владивосток",
     "влад": "Владивосток",
+    "вдк": "Владивосток",
     "краснодар": "Краснодар",
     "красноярск": "Красноярск",
     "алматы": "Алматы",
@@ -181,7 +182,8 @@ def city_to_timezone(city_input: str) -> tuple[str | None, str | None]:
         return tz_offset, display_offset
 
     # apply aliases
-    city_normalized = _ALIASES.get(city_lower, city)
+    alias_target = _ALIASES.get(city_lower)
+    city_normalized = alias_target if alias_target else city
 
     # detect lang for display
     lang = "ru" if _CYRILLIC.search(city_normalized) else "en"
@@ -200,5 +202,5 @@ def city_to_timezone(city_input: str) -> tuple[str | None, str | None]:
     if not tz:
         return None, None
 
-    display = location.address.split(",")[0].strip()
+    display = alias_target if alias_target else location.address.split(",")[0].strip()
     return tz, display
