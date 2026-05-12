@@ -175,7 +175,11 @@ def build_reminders_message(reminders, user_id: int, lang: str):
     for r in reminders:
         if r["type"] == "recurring":
             interval_str = format_interval(r["interval_seconds"], lang)
-            label = t(lang, 'label_recurring', interval=interval_str, msg=r['message'])
+            if r.get("next_fire") and r["interval_seconds"] >= 86400:
+                dt = _local_dt(r["next_fire"], user_id)
+                label = t(lang, 'label_recurring_at', interval=interval_str, time=_fmt_time(dt, lang), msg=r['message'])
+            else:
+                label = t(lang, 'label_recurring', interval=interval_str, msg=r['message'])
         else:
             dt = _local_dt(r["next_fire"], user_id)
             label = t(lang, 'label_once', time=_fmt_datetime(dt, lang), msg=r['message'])
