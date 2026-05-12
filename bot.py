@@ -183,8 +183,7 @@ def build_reminders_message(reminders, user_id: int, lang: str):
             dt = _local_dt(r["next_fire"], user_id)
             label = t(lang, 'label_once', time=_fmt_datetime(dt, lang), msg=r['message'])
         buttons.append([
-            InlineKeyboardButton(label[:45], callback_data="noop"),
-            InlineKeyboardButton("🗑", callback_data=f"del_{r['id']}")
+            InlineKeyboardButton(f"🗑 {label[:50]}", callback_data=f"del_{r['id']}")
         ])
     buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
     return t(lang, 'reminders_header'), InlineKeyboardMarkup(buttons)
