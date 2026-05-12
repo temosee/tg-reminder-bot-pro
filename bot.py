@@ -170,7 +170,6 @@ def _fmt_datetime(dt: datetime, lang: str) -> str:
     return dt.strftime('%H:%M %d.%m')
 
 def build_reminders_message(reminders, user_id: int, lang: str):
-    lines = [t(lang, 'reminders_header')]
     buttons = []
     for r in reminders:
         if r["type"] == "recurring":
@@ -183,13 +182,12 @@ def build_reminders_message(reminders, user_id: int, lang: str):
         else:
             dt = _local_dt(r["next_fire"], user_id)
             label = t(lang, 'label_once', time=_fmt_datetime(dt, lang), msg=r['message'])
-        lines.append(f"• {label}")
-        buttons.append([InlineKeyboardButton(
-            t(lang, 'btn_delete', msg=r['message'][:30]),
-            callback_data=f"del_{r['id']}"
-        )])
+        buttons.append([
+            InlineKeyboardButton(label[:45], callback_data="noop"),
+            InlineKeyboardButton("🗑", callback_data=f"del_{r['id']}")
+        ])
     buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
-    return "\n".join(lines), InlineKeyboardMarkup(buttons)
+    return t(lang, 'reminders_header'), InlineKeyboardMarkup(buttons)
 
 async def show_notes(update: Update, user_id: int, lang: str):
     notes = db.get_notes(user_id)
@@ -285,6 +283,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "settings_tz":
         await query.edit_message_text(t(lang, 'settings_tz_prompt'))
         context.user_data["awaiting_city"] = True
+        return
+
+    # noop
+    if query.data == "noop":
         return
 
     # close
