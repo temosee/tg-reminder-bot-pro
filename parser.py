@@ -121,15 +121,16 @@ def _resolve_tod(text: str) -> int | None:
 def _resolve_time(base_day: datetime, text: str) -> float | None:
     """Возвращает timestamp для base_day с учётом времени из текста."""
     m_hm = re.search(r"в\s+(\d{1,2}):(\d{2})", text)
-    # "в N часов вечера/утра/дня/ночи" — с уточнением части дня
     m_h_tod = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\s*(утра|дня|вечера|ночи)\b", text)
     m_h  = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\b", text)
     m_tod_d = re.search(r"в\s+(\d{1,2})(?::(\d{2}))?\s*(утра|дня|вечера|ночи)\b", text)
     m_s_h = re.search(r"\bс\s+(\d{1,2})(?::(\d{2}))?\s*час(?:ов|а)?\b", text)
+    m_s_tod = re.search(r"\bс\s+(\d{1,2})\s*(утра|вечера|ночи|дня)\b", text)
 
     if m_hm:
         h, mn = int(m_hm.group(1)), int(m_hm.group(2))
-        return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
+        if 0 <= h <= 23:
+            return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
     if m_h_tod:
         h_raw, tod = int(m_h_tod.group(1)), m_h_tod.group(2)
         h = h_raw % 12 if tod == "утра" else h_raw % 12 + 12
@@ -138,18 +139,22 @@ def _resolve_time(base_day: datetime, text: str) -> float | None:
         h_raw = int(m_tod_d.group(1))
         mn = int(m_tod_d.group(2) or 0)
         tod = m_tod_d.group(3)
-        if tod == "утра":
-            h = h_raw % 12
-        else:
-            h = h_raw % 12 + 12
+        h = h_raw % 12 if tod in ("утра", "ночи") else h_raw % 12 + 12
         return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
     if m_h:
         h = int(m_h.group(1))
-        return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
+        if 0 <= h <= 23:
+            return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
     if m_s_h:
         h = int(m_s_h.group(1))
         mn = int(m_s_h.group(2) or 0)
-        return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
+        if 0 <= h <= 23:
+            return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
+    if m_s_tod:
+        h_raw, tod = int(m_s_tod.group(1)), m_s_tod.group(2)
+        h = h_raw % 12 if tod in ("утра", "ночи") else h_raw % 12 + 12
+        if 0 <= h <= 23:
+            return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
     m_bare = re.search(r"\bв\s+(\d{1,2})(?::(\d{2}))?\b", text)
     if m_bare:
         h = int(m_bare.group(1))
@@ -398,11 +403,20 @@ def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | Non
     if m_s_h:
         h = int(m_s_h.group(1))
         mn = int(m_s_h.group(2) or 0)
-        return _today_or_tomorrow(h, mn)
+        if 0 <= h <= 23:
+            return _today_or_tomorrow(h, mn)
+
+    # "с N утра/вечера/дня/ночи"
+    m_s_tod = re.search(r"\bс\s+(\d{1,2})\s*(утра|вечера|ночи|дня)\b", lower)
+    if m_s_tod:
+        h_raw, tod = int(m_s_tod.group(1)), m_s_tod.group(2)
+        h = h_raw % 12 if tod in ("утра", "ночи") else h_raw % 12 + 12
+        if 0 <= h <= 23:
+            return _today_or_tomorrow(h)
 
     # "с утра" / "утром" / "вечером" etc. без числа
     h_tod = _resolve_tod(lower)
-    if h_tod is not None and not re.search(r"[ваисс]\s+\d", lower):
+    if h_tod is not None and not re.search(r"[вс]\s+\d", lower):
         return _today_or_tomorrow(h_tod)
 
     # "в N часов вечера/утра/дня/ночи" — с уточнением части дня
@@ -410,12 +424,15 @@ def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | Non
     if m_h_tod:
         h_raw, tod = int(m_h_tod.group(1)), m_h_tod.group(2)
         h = h_raw % 12 if tod == "утра" else h_raw % 12 + 12
-        return _today_or_tomorrow(h)
+        if 0 <= h <= 23:
+            return _today_or_tomorrow(h)
 
     # "в N часов/часа/час"
     m_h = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\b", lower)
     if m_h:
-        return _today_or_tomorrow(int(m_h.group(1)))
+        h = int(m_h.group(1))
+        if 0 <= h <= 23:
+            return _today_or_tomorrow(h)
 
     # "в N утра/дня/вечера/ночи"
     m_tod = re.search(r"в\s+(\d{1,2})(?::(\d{2}))?\s*(утра|дня|вечера|ночи)\b", lower)
@@ -469,6 +486,7 @@ _DELTA_STRIP = (
 _TIME_STRIP = (
     r"(?:(?:завтра|сегодня)\s+)?в\s+\d{1,2}(?::\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?)?"
     r"|\bс\s+\d{1,2}(?::\d{2})?\s*час(?:ов|а)?\b"
+    r"|\bс\s+\d{1,2}\s*(?:утра|вечера|ночи|дня)\b"
     rf"|\b(?:{_TOD_PAT})\b"
     r"|\bв\s+обед\b"
     r"|\bсегодня\b|\bзавтра\b|\bпослезавтра\b"
@@ -499,7 +517,7 @@ def _extract_message(text: str) -> str:
     )
     # Всё до и включая основной триггер
     # Убираем мусорные слова-паразиты
-    result = re.sub(r"\b(пожалуйста|блин|бля|ну|вот|типа|короч|кстати|просто|давай|ровно)\b", "", result, flags=re.IGNORECASE)
+    result = re.sub(r"\b(пожалуйста|блин|бля|ну|вот|типа|короч|кстати|просто|давай|ровно|начиная)\b", "", result, flags=re.IGNORECASE)
 
     trigger_pat = re.compile(
         r"^(.*?)\b(напомни|напоминай|напомнить|напомнил[аи]?|дай\s+знать|нужно\s+напомнить|скажи)\b[-\s]*(ка\b\s*)?\s*(мне\s*)?(пожалуйста\s*)?",
