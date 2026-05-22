@@ -39,7 +39,7 @@ UNITS_TO_SECONDS = {
 # Часы по умолчанию для частей дня
 TIME_OF_DAY = {
     "утром": 8, "утра": 8, "с утра": 8,
-    "днём": 13, "днем": 13, "дня": 13, "в обед": 13, "обед": 13, "обеда": 13,
+    "днём": 13, "днем": 13, "в обед": 13, "обед": 13, "обеда": 13,
     "вечером": 17, "вечера": 17, "вечерком": 17, "ближе к вечеру": 18,
     "ночью": 22, "ночи": 22,
     "в полночь": 0, "полночь": 0, "полуночи": 0,
@@ -125,6 +125,7 @@ def _resolve_time(base_day: datetime, text: str) -> float | None:
     m_h_tod = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\s*(утра|дня|вечера|ночи)\b", text)
     m_h  = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\b", text)
     m_tod_d = re.search(r"в\s+(\d{1,2})(?::(\d{2}))?\s*(утра|дня|вечера|ночи)\b", text)
+    m_s_h = re.search(r"\bс\s+(\d{1,2})(?::(\d{2}))?\s*час(?:ов|а)?\b", text)
 
     if m_hm:
         h, mn = int(m_hm.group(1)), int(m_hm.group(2))
@@ -145,6 +146,16 @@ def _resolve_time(base_day: datetime, text: str) -> float | None:
     if m_h:
         h = int(m_h.group(1))
         return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
+    if m_s_h:
+        h = int(m_s_h.group(1))
+        mn = int(m_s_h.group(2) or 0)
+        return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
+    m_bare = re.search(r"\bв\s+(\d{1,2})(?::(\d{2}))?\b", text)
+    if m_bare:
+        h = int(m_bare.group(1))
+        mn = int(m_bare.group(2) or 0)
+        if 0 <= h <= 23:
+            return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
     h = _resolve_tod(text)
     if h is not None:
         return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
@@ -310,7 +321,13 @@ def _parse_once_delta(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
                     mult = val
                     break
         if mult:
-            return time.time() + num * mult
+            target_ts = time.time() + num * mult
+            if mult >= 86400:
+                target_dt = datetime.fromtimestamp(target_ts, tz=tz)
+                resolved = _resolve_time(target_dt, text)
+                if resolved is not None:
+                    return resolved
+            return target_ts
         return None
 
     # "через N единиц" — обычный порядок
@@ -376,9 +393,16 @@ def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | Non
     if re.search(r"\bв\s+обед\b|\bобед\b", lower):
         return _today_or_tomorrow(13)
 
+    # "с N часов/часа" — время начала
+    m_s_h = re.search(r"\bс\s+(\d{1,2})(?::(\d{2}))?\s*час(?:ов|а)?\b", lower)
+    if m_s_h:
+        h = int(m_s_h.group(1))
+        mn = int(m_s_h.group(2) or 0)
+        return _today_or_tomorrow(h, mn)
+
     # "с утра" / "утром" / "вечером" etc. без числа
     h_tod = _resolve_tod(lower)
-    if h_tod is not None and not re.search(r"в\s+\d", lower):
+    if h_tod is not None and not re.search(r"[ваисс]\s+\d", lower):
         return _today_or_tomorrow(h_tod)
 
     # "в N часов вечера/утра/дня/ночи" — с уточнением части дня
@@ -444,6 +468,7 @@ _DELTA_STRIP = (
 
 _TIME_STRIP = (
     r"(?:(?:завтра|сегодня)\s+)?в\s+\d{1,2}(?::\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?)?"
+    r"|\bс\s+\d{1,2}(?::\d{2})?\s*час(?:ов|а)?\b"
     rf"|\b(?:{_TOD_PAT})\b"
     r"|\bв\s+обед\b"
     r"|\bсегодня\b|\bзавтра\b|\bпослезавтра\b"
@@ -477,7 +502,7 @@ def _extract_message(text: str) -> str:
     result = re.sub(r"\b(пожалуйста|блин|бля|ну|вот|типа|короч|кстати|просто|давай|ровно)\b", "", result, flags=re.IGNORECASE)
 
     trigger_pat = re.compile(
-        r"^(.*?)\b(напомни|напоминай|напомнить|напомнил[аи]?|дай\s+знать|нужно\s+напомнить)\b[-\s]*(ка\b\s*)?\s*(мне\s*)?(пожалуйста\s*)?",
+        r"^(.*?)\b(напомни|напоминай|напомнить|напомнил[аи]?|дай\s+знать|нужно\s+напомнить|скажи)\b[-\s]*(ка\b\s*)?\s*(мне\s*)?(пожалуйста\s*)?",
         re.IGNORECASE
     )
     m = trigger_pat.match(result)
@@ -849,7 +874,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         r"не забудь напомнить|напомнить\b|напомнил[аи]?\b|нужно напомнить|"
         r"нужно напомина\w+|мне нужно напомина\w+|"
         r"хочу чтобы ты напомнил|можешь напомнить|можешь поставить напомина\w+|"
-        r"дай знать",
+        r"дай знать|скажи\b",
         lower
     ))
 

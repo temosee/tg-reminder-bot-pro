@@ -52,6 +52,12 @@ def format_interval(seconds: int, lang: str = 'ru') -> str:
         return t(lang, 'interval_sec', n=seconds)
     if seconds < 3600:
         return t(lang, 'interval_min', n=seconds // 60)
+    if seconds >= 86400 and seconds % 86400 == 0:
+        d = seconds // 86400
+        if lang == 'ru':
+            word = 'день' if d == 1 else ('дня' if d in (2, 3, 4) else 'дней')
+            return f"{d} {word}"
+        return f"{d} {'day' if d == 1 else 'days'}"
     h = seconds / 3600
     return t(lang, 'interval_h', n=int(h) if h == int(h) else f"{h:.1f}")
 
@@ -182,8 +188,9 @@ def build_reminders_message(reminders, user_id: int, lang: str):
         else:
             dt = _local_dt(r["next_fire"], user_id)
             label = t(lang, 'label_once', time=_fmt_datetime(dt, lang), msg=r['message'])
+        delete_word = "Удалить" if lang == "ru" else "Delete"
         buttons.append([
-            InlineKeyboardButton(f"🗑 {label[:50]}", callback_data=f"del_{r['id']}")
+            InlineKeyboardButton(f"🗑 {delete_word} — {label[:40]}", callback_data=f"del_{r['id']}")
         ])
     buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
     return t(lang, 'reminders_header'), InlineKeyboardMarkup(buttons)
