@@ -274,6 +274,29 @@ tests = [
 
     ("напомни через час: позвонить другу",              "once",      "позвонить другу",           None, HOUR),
     ("напомни завтра: купить продукты",                 "once",      "купить продукты",           None, DAY),
+
+    ("напомни в восемь утра позвонить",                 "once",      "позвонить",                 None, None),
+    ("напомни в десять вечера лечь спать",              "once",      "лечь спать",                None, None),
+    ("напомни в семь утра сделать зарядку",             "once",      "сделать зарядку",           None, None),
+
+    ("remind me in half an hour to call",               "once",      "call",                      None, 30*MINUTE),
+    ("remind me in half an hour",                       "once",      "reminder",                  None, 30*MINUTE),
+
+    ("remind me the day after tomorrow to submit",      "once",      "submit",                    None, None),
+    ("remind me day after tomorrow at 10am to call",    "once",      "call",                      None, None),
+
+    ("напоминай ежечасно пить воду",                    "recurring", "пить воду",                 HOUR, None),
+    ("напоминай ежечасно проверять почту",              "recurring", "проверять почту",            HOUR, None),
+
+    ("напомни в 0 часов лечь спать",                    "once",      "лечь спать",                None, None),
+    ("напомни в 23:59 лечь спать",                      "once",      "лечь спать",                None, None),
+
+    ("в 8 вечера напомни позвонить",                    "once",      "позвонить",                 None, None),
+    ("в 15:00 напомни выйти",                           "once",      "выйти",                     None, None),
+    ("через час напомни пожалуйста позвонить",          "once",      "позвонить",                 None, HOUR),
+
+    ("можешь в 19:00 напомнить мне поужинать",          "once",      "поужинать",                 None, None),
+    ("remind me in an hour to drink water",             "once",      "drink water",               None, HOUR),
 ]
 
 error_tests = [
@@ -315,6 +338,14 @@ error_tests = [
 
     ("what time is it",                             "Couldn't"),
     ("hello how are you",                           "Couldn't"),
+
+    ("",                                            ""),
+    ("   ",                                         ""),
+
+    ("напомни!!!",                                  "Укажи время"),
+
+    ("напомни в 24 часа позвонить",                 "23"),
+    ("напомни в 24:00 лечь",                        "23"),
 ]
 
 ok = fail = 0

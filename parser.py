@@ -178,7 +178,7 @@ def _parse_interval(text: str, tz: zoneinfo.ZoneInfo = None) -> int | None:
     text = text.lower().strip()
     text = _normalize(text)
 
-    if re.search(r"каждый\s+час", text):
+    if re.search(r"каждый\s+час|ежечасно", text):
         return 3600
     if re.search(r"каждую\s+минуту", text):
         return 60
@@ -517,8 +517,11 @@ _DELTA_STRIP = (
     rf"|за\s+{_NUM_PAT}\s+(?:{_ALL_UNITS})\s+до(?:\s+(?!в\s+\d)[а-яёА-ЯЁ]+){{0,6}}"  # за N до [чего-то]
 )
 
+_WORD_HOUR_PAT = r"один|два|три|четыре|пять|шесть|семь|восемь|девять|десять|одиннадцать|двенадцать"
+
 _TIME_STRIP = (
     r"(?:(?:завтра|сегодня)\s+)?в\s+\d{1,2}(?::\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?)?"
+    rf"|\bв\s+(?:{_WORD_HOUR_PAT})\s*(?:час[а-ов]*\s+)?(?:утра|дня|вечера|ночи)?\b"
     r"|\bс\s+\d{1,2}(?::\d{2})?\s*час(?:ов|а)?\b"
     r"|\bс\s+\d{1,2}\s*(?:утра|вечера|ночи|дня)\b"
     rf"|\b(?:{_TOD_PAT})\b"
@@ -689,6 +692,10 @@ def _parse_en_delta(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
         ts = _resolve_en_time(d, lower)
         return ts if ts is not None else d.replace(hour=9, minute=0, second=0, microsecond=0).timestamp()
 
+    # "in half an hour"
+    if re.search(r'\bhalf\s+an?\s+hour\b', lower):
+        return time.time() + 1800
+
     # "in a couple (of) hours" / "in a few days"
     m_couple = re.search(rf'\bin\s+(?:a\s+)?(?:couple|few)(?:\s+of)?\s+({_EN_UNIT_PAT})\b', lower)
     if m_couple and m_couple.group(1) in EN_UNITS:
@@ -779,8 +786,9 @@ def _extract_en_message(text: str) -> str:
     strips = [
         rf'\bin\s+[\w.]+\s+(?:{_EN_UNIT_PAT})\b',
         rf'\bin\s+(?:a|an)\s+(?:{_EN_UNIT_PAT})\b',
+        r'\bin\s+half\s+an?\s+hour\b',
         r'\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b',
-        r'\bday\s+after\s+tomorrow\b',
+        r'\b(?:the\s+)?day\s+after\s+tomorrow\b',
         r'\btomorrow\b', r'\btoday\b',
         rf'\bnext\s+(?:{_EN_WD_PAT})\b',
         rf'\bevery\s+(?:{_EN_WD_PAT})\b',
@@ -905,7 +913,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
 
     is_recurring = bool(re.search(
         r"напоминай|\bставь напоминание|добавь напоминание|хочу чтобы ты напоминал|"
-        r"напоминалку каждый|напоминалку каждые|ежедневно",
+        r"напоминалку каждый|напоминалку каждые|ежедневно|ежечасно",
         lower
     )) or bool(re.search(r"каждый|каждые|каждую|каждое|раз\s+в\s+", lower))
 
@@ -917,7 +925,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
 
         text_norm_rec = _normalize(text_clean)
         msg = re.sub(
-            r"каждый\s+час|каждую\s+минуту|каждую\s+секунду|каждый\s+день|каждые?\s+сутки|каждую\s+неделю|ежедневно|"
+            r"каждый\s+час|каждую\s+минуту|каждую\s+секунду|каждый\s+день|каждые?\s+сутки|каждую\s+неделю|ежедневно|ежечасно|"
             r"раз\s+в\s+(?:час|минуту|день|сутки|неделю|месяц)\b|"
             r"раз\s+в\s+[\wа-яё]+\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b|"
             r"каждые?\s+[\wа-яё.,]+(?:\s+[\wа-яё]+)?\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|недел[юьи]|недель)\b|"
