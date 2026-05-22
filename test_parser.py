@@ -205,12 +205,74 @@ tests = [
                                                        "once", "позвонить другу",               None, None),
     ("напомни мне пожалуйста через 2 часа выпить лекарство",
                                                        "once", "выпить лекарство",              None, 2*HOUR),
+
+    ("через час скажи мне позвонить другу",            "once", "позвонить другу",               None, HOUR),
+    ("скажи мне через 30 минут поесть",                "once", "поесть",                        None, 30*MINUTE),
+
+    ("напомни через двадцать пять минут выпить воду",  "once", "выпить воду",                   None, 25*MINUTE),
+    ("напомни через тридцать минут позвонить",         "once", "позвонить",                     None, 30*MINUTE),
+    ("напоминай каждые двадцать минут пить воду",      "recurring", "пить воду",                20*MINUTE, None),
+
+    ("напомни через час #работа сдать отчёт",          "once", "сдать отчёт",                   None, HOUR),
+    ("напоминай каждый день в 9 #спорт делать зарядку","recurring", "делать зарядку",           DAY, None),
+    ("напомни завтра #семья позвонить маме",           "once", "позвонить маме",                None, DAY),
+
+    ("напомни через 4 дня в 15 часов поделать скрины", "once", "поделать скрины",               None, None),
+    ("напомни через 2 дня в 10 часов встреча",         "once", "встреча",                       None, None),
+    ("напомни через 3 дня в 20 часов позвонить",       "once", "позвонить",                     None, None),
+
+    ("напоминай каждые 2 дня с 9 утра делать зарядку", "recurring", "делать зарядку",           2*DAY, None),
+    ("напомни завтра с 10 часов начать работу",        "once", "начать работу",                 None, None),
+
+    ("напоминай каждый понедельник в 10:00 сдавать отчёт","recurring","сдавать отчёт",          7*DAY, None),
+    ("напоминай каждую пятницу вечером проверить задачи", "recurring","проверить задачи",       7*DAY, None),
+    ("напоминай каждое воскресенье в 21 час посмотреть сериал","recurring","посмотреть сериал", 7*DAY, None),
+    ("напоминай каждую среду в 9 утра созвон с командой",  "recurring","созвон с командой",     7*DAY, None),
+    ("каждый вторник в 15 часов напомни позвонить врачу",  "recurring","позвонить врачу",       7*DAY, None),
+
+    ("remind me every monday at 10:00 to submit report",   "recurring","submit report",          7*DAY, None),
+    ("remind me every friday at 6pm to check tasks",       "recurring","check tasks",            7*DAY, None),
+    ("every tuesday at 3pm call the team",                 "recurring","call the team",          7*DAY, None),
+    ("every sunday at 9am do workout",                     "recurring","do workout",             7*DAY, None),
+
+    ("напомни через час и позвонить маме",              "once", "позвонить маме",                None, HOUR),
+    ("напомни завтра а поговорить с другом",            "once", "поговорить с другом",           None, DAY),
+
+    ("напоминай пить воду каждые 2 часа начиная с утра","recurring", "пить воду",               2*HOUR, None),
+
+    ("напомни ночью принять таблетку",                  "once", "принять таблетку",              None, None),
+
+    ("напомни через минуту позвонить",                  "once", "позвонить",                     None, MINUTE),
+
+    ("напомни через 30 минут",                          "once", "напоминание",                   None, 30*MINUTE),
+    ("remind me in 1 hour",                             "once", "reminder",                      None, HOUR),
+
+    ("ставь напоминание раз в час проверить почту",     "recurring", "проверить почту",          HOUR, None),
+    ("раз в 2 часа напомни выпить воды",                "recurring", "выпить воды",              2*HOUR, None),
+
+    ("напомни в полдень пообедать",                     "once", "пообедать",                     None, None),
+
+    ("напомни послезавтра в 14:00 встреча",             "once", "встреча",                       None, None),
+
+    ("дай знать через 2 часа что надо уходить",        "once", "надо уходить",                  None, 2*HOUR),
+
+    ("напомни   через   час   поесть",                  "once", "поесть",                        None, HOUR),
+    ("пожалуйста напомни мне пожалуйста через час пойти в магазин", "once", "пойти в магазин",  None, HOUR),
+
+    ("remind me every 2 days at 8am to workout",        "recurring", "workout",                  2*DAY, None),
+    ("remind me every 3 days to call parents",          "recurring", "call parents",              3*DAY, None),
+
+    ("remind me tomorrow in the morning to run",        "once", "run",                           None, None),
+    ("remind me in the morning to drink water",         "once", "drink water",                   None, None),
 ]
 
 error_tests = [
     # bare number ≤12 without am/pm in RECURRING → must ask for clarification
     ("remind every day at 8 to stretch",  "AM or PM"),
     ("remind me every week at 9 to call", "AM or PM"),
+    # invalid hour
+    ("напомни в 25 часов выйти",          ""),
+    ("напомни в 99:00 позвонить",         ""),
 ]
 
 ok = fail = 0

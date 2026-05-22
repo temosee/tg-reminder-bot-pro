@@ -192,9 +192,17 @@ def _parse_interval(text: str, tz: zoneinfo.ZoneInfo = None) -> int | None:
     if m_wd_rec:
         return 604800
 
-    # раз в N дней/недель/месяцев
+    # раз в час/минуту/день/неделю (без числа)
+    m_raz_solo = re.search(
+        r"раз\s+в\s+(час|минуту|день|неделю|месяц)\b",
+        text
+    )
+    if m_raz_solo:
+        return UNITS_TO_SECONDS.get(m_raz_solo.group(1), 3600)
+
+    # раз в N дней/недель/месяцев/часов/минут
     m_raz = re.search(
-        r"раз\s+в\s+([\wа-яё]+)\s+(дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b",
+        r"раз\s+в\s+([\wа-яё]+)\s+(секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b",
         text
     )
     if m_raz:
@@ -774,6 +782,7 @@ def _extract_en_message(text: str) -> str:
         r'\bday\s+after\s+tomorrow\b',
         r'\btomorrow\b', r'\btoday\b',
         rf'\bnext\s+(?:{_EN_WD_PAT})\b',
+        rf'\bevery\s+(?:{_EN_WD_PAT})\b',
         rf'\b(?:on\s+)?(?:{_EN_WD_PAT})\b',
         r'\bin\s+the\s+(?:morning|afternoon|evening)\b',
         r'\bat\s+(?:noon|midnight|lunch)\b',
@@ -916,7 +925,8 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         text_norm_rec = _normalize(text_clean)
         msg = re.sub(
             r"каждый\s+час|каждую\s+минуту|каждую\s+секунду|каждый\s+день|каждые\s+сутки|каждую\s+неделю|"
-            r"раз\s+в\s+[\wа-яё]+\s+(?:дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b|"
+            r"раз\s+в\s+(?:час|минуту|день|неделю|месяц)\b|"
+            r"раз\s+в\s+[\wа-яё]+\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b|"
             r"каждые?\s+[\wа-яё.,]+(?:\s+[\wа-яё]+)?\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|недел[юьи]|недель)\b|"
             r"(?:каждый|каждую|каждое)\s+(?:" + _WEEKDAY_PAT + r")\b",
             "", text_norm_rec, flags=re.IGNORECASE
