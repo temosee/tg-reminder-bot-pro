@@ -183,6 +183,10 @@ def _parse_interval(text: str, tz: zoneinfo.ZoneInfo = None) -> int | None:
     if re.search(r"каждую\s+неделю", text):
         return 604800
 
+    m_wd_rec = re.search(r"\b(?:каждый|каждую|каждое)\s+(" + _WEEKDAY_PAT + r")\b", text)
+    if m_wd_rec:
+        return 604800
+
     # раз в N дней/недель/месяцев
     m_raz = re.search(
         r"раз\s+в\s+([\wа-яё]+)\s+(дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b",
@@ -393,6 +397,22 @@ def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | Non
         if target.timestamp() < time.time():
             target += timedelta(days=1)
         return target.timestamp()
+
+    # "каждый/каждую/каждое [день недели]" — следующее вхождение
+    m_rec_wd = re.search(r"\b(?:каждый|каждую|каждое)\s+(" + _WEEKDAY_PAT + r")\b", lower)
+    if m_rec_wd:
+        wd = WEEKDAYS_RU[m_rec_wd.group(1)]
+        now_dt = datetime.now(tz=tz)
+        days_ahead = wd - now_dt.weekday()
+        if days_ahead < 0:
+            days_ahead += 7
+        target_day = now_dt + timedelta(days=days_ahead)
+        ts = _resolve_time(target_day, lower)
+        if ts is None:
+            ts = target_day.replace(hour=9, minute=0, second=0, microsecond=0).timestamp()
+        if ts <= time.time():
+            ts += 604800
+        return ts
 
     # "в обед"
     if re.search(r"\bв\s+обед\b|\bобед\b", lower):
@@ -854,7 +874,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         r"напоминай|\bставь напоминание|добавь напоминание|хочу чтобы ты напоминал|"
         r"напоминалку каждый|напоминалку каждые",
         lower
-    )) or bool(re.search(r"каждый|каждые|каждую|раз\s+в\s+", lower))
+    )) or bool(re.search(r"каждый|каждые|каждую|каждое|раз\s+в\s+", lower))
 
     if is_recurring:
         interval = _parse_interval(lower)
@@ -869,7 +889,8 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         msg = re.sub(
             r"каждый\s+час|каждую\s+минуту|каждую\s+секунду|каждый\s+день|каждые\s+сутки|каждую\s+неделю|"
             r"раз\s+в\s+[\wа-яё]+\s+(?:дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b|"
-            r"каждые?\s+[\wа-яё.,]+(?:\s+[\wа-яё]+)?\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|недел[юьи]|недель)\b",
+            r"каждые?\s+[\wа-яё.,]+(?:\s+[\wа-яё]+)?\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|недел[юьи]|недель)\b|"
+            r"(?:каждый|каждую|каждое)\s+(?:" + _WEEKDAY_PAT + r")\b",
             "", text_norm_rec, flags=re.IGNORECASE
         )
         # first fire time if specified
