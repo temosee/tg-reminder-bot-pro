@@ -264,6 +264,16 @@ tests = [
 
     ("remind me tomorrow in the morning to run",        "once", "run",                           None, None),
     ("remind me in the morning to drink water",         "once", "drink water",                   None, None),
+
+    ("напомни через сутки вынести мусор",               "once",      "вынести мусор",            None, DAY),
+    ("напомни через 2 суток купить подарок",            "once",      "купить подарок",            None, 2*DAY),
+    ("напоминай раз в сутки принять лекарство",         "recurring", "принять лекарство",        DAY, None),
+    ("напоминай каждые сутки пить воду",                "recurring", "пить воду",                DAY, None),
+
+    ("напоминай ежедневно в 9 делать зарядку",          "recurring", "делать зарядку",           DAY, None),
+
+    ("напомни через час: позвонить другу",              "once",      "позвонить другу",           None, HOUR),
+    ("напомни завтра: купить продукты",                 "once",      "купить продукты",           None, DAY),
 ]
 
 error_tests = [
