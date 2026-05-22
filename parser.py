@@ -825,7 +825,7 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
     if is_recurring:
         interval = _parse_en_interval(lower)
         if interval is None:
-            result["error"] = "I didn't understand the interval. Try: «remind me every 2 hours» or «every 30 minutes drink water»"
+            result["error"] = "Specify interval: «every 2 hours», «every 30 minutes», «every day»"
             return result
         # weekday-based recurring: compute next occurrence
         m_wd_ev = re.search(r'\bevery\s+(' + _EN_WD_PAT + r')\b', lower)
@@ -866,12 +866,7 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
         if next_fire is None:
             next_fire = _parse_en_absolute(text_for_time, tz)
         if next_fire is None:
-            result["error"] = (
-                "I didn't understand the time. Try:\n"
-                "• remind me in 30 minutes to drink water\n"
-                "• remind me tomorrow at 9am to call mom\n"
-                "• remind me every 2 hours to stretch"
-            )
+            result["error"] = "Specify time: «in 30 minutes», «at 9am», «tomorrow evening»"
             return result
 
         if _that:
@@ -884,8 +879,8 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
         return result
 
     result["error"] = (
-        "I didn't understand. Try:\n"
-        "• remind me in 30 minutes to drink water\n"
+        "Couldn't parse. Examples:\n"
+        "• remind me in 30 minutes to call\n"
         "• remind me tomorrow at 9am\n"
         "• remind me every 2 hours to drink water"
     )
@@ -917,10 +912,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
     if is_recurring:
         interval = _parse_interval(lower)
         if interval is None:
-            result["error"] = (
-                "Не понял интервал. Попробуй: «напоминай вставать каждый час» "
-                "или «напоминай пить воду каждые 30 минут»"
-            )
+            result["error"] = "Укажи интервал: «каждый час», «каждые 30 минут», «каждые 2 дня»"
             return result
 
         text_norm_rec = _normalize(text_clean)
@@ -957,6 +949,16 @@ def parse(text: str, user_tz: str | None = None) -> dict:
     ))
 
     if is_once:
+        # Detect obviously invalid time values
+        m_bad_h = re.search(r"\bв\s+(\d{1,3})\s*(?:час|:)", lower)
+        if m_bad_h and int(m_bad_h.group(1)) > 23:
+            result["error"] = f"Некорректное время — часов от 0 до 23, у тебя {m_bad_h.group(1)}."
+            return result
+        m_bad_m = re.search(r":\s*(\d{2,3})\b", lower)
+        if m_bad_m and int(m_bad_m.group(1)) > 59:
+            result["error"] = f"Некорректное время — минут от 0 до 59, у тебя {m_bad_m.group(1)}."
+            return result
+
         # normalize
         text_norm = _normalize(text_clean)
 
@@ -1009,10 +1011,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
             msg = re.sub(_DELTA_STRIP, "", text_norm, flags=re.IGNORECASE)
 
         if next_fire is None:
-            result["error"] = (
-                "Не понял время. Попробуй: «напомни через 30 минут выйти» "
-                "или «напомни в 15:00 позвонить»"
-            )
+            result["error"] = "Укажи время: «через 30 минут», «в 15:00», «завтра утром»"
             return result
 
         msg = _extract_message(msg)
@@ -1022,12 +1021,9 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         return result
 
     result["error"] = (
-        "Не понял команду.\n\n"
-        "Примеры:\n"
-        "• напомни через 30 минут выйти погулять\n"
+        "Не понял запрос. Примеры:\n"
+        "• напомни через 30 минут выйти\n"
         "• напомни в 15:00 позвонить маме\n"
-        "• напоминай вставать каждый час\n"
-        "• напоминай пить воду каждые 45 минут\n\n"
-        "Или напиши «мои напоминания» чтобы посмотреть список."
+        "• напоминай пить воду каждые 2 часа"
     )
     return result
