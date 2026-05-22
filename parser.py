@@ -68,6 +68,11 @@ def _parse_number(s: str) -> float | None:
     s = s.strip().lower()
     if s in WORD_NUMBERS:
         return WORD_NUMBERS[s]
+    parts = s.split()
+    if len(parts) == 2:
+        a, b = WORD_NUMBERS.get(parts[0]), WORD_NUMBERS.get(parts[1])
+        if a is not None and b is not None and a >= 10 and 0 < b < 10:
+            return a + b
     try:
         return float(s)
     except ValueError:
@@ -553,7 +558,9 @@ def _extract_message(text: str) -> str:
         result = after if after else before
     else:
         result = re.sub(r"\s{2,}", " ", result)
-    result = re.sub(r'^что\s+', '', result, flags=re.IGNORECASE).strip(" ,.!?…")
+    result = re.sub(r'^что\s+', '', result, flags=re.IGNORECASE)
+    result = re.sub(r'^[иа]\s+', '', result, flags=re.IGNORECASE)
+    result = re.sub(r'\s*#\w+', '', result)
     return result.strip(" ,.!?…")
 
 # EN parsing
@@ -735,6 +742,10 @@ def _parse_en_interval(text: str) -> int | None:
     if re.search(r'\bevery\s+day\b|\bdaily\b', lower): return 86400
     if re.search(r'\bevery\s+week\b|\bweekly\b', lower): return 604800
 
+    m_wd_rec = re.search(r'\bevery\s+(' + _EN_WD_PAT + r')\b', lower)
+    if m_wd_rec:
+        return 604800
+
     m = re.search(rf'\bevery\s+([\w.]+)\s+({_EN_UNIT_PAT})\b', lower)
     if m:
         num = _parse_en_num(m.group(1))
@@ -790,9 +801,10 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
         lower
     ))
 
-    # bare "at N" without am/pm — recurring asks, once picks nearest
+    # bare "at N" without am/pm — for recurring ask AM/PM, but not for weekday-based
     m_bare = _EN_BARE_HOUR.search(lower)
-    if m_bare and int(m_bare.group(1)) <= 12 and is_recurring:
+    has_wd_rec = bool(re.search(r'\bevery\s+(?:' + _EN_WD_PAT + r')\b', lower))
+    if m_bare and int(m_bare.group(1)) <= 12 and is_recurring and not has_wd_rec:
         h = int(m_bare.group(1))
         result["error"] = (
             f"Did you mean {h}:00 AM or {h}:00 PM?\n"
@@ -805,7 +817,23 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
         if interval is None:
             result["error"] = "I didn't understand the interval. Try: «remind me every 2 hours» or «every 30 minutes drink water»"
             return result
-        first_fire = _parse_en_absolute(text, tz)
+        # weekday-based recurring: compute next occurrence
+        m_wd_ev = re.search(r'\bevery\s+(' + _EN_WD_PAT + r')\b', lower)
+        if m_wd_ev:
+            wd = EN_WEEKDAYS[m_wd_ev.group(1)]
+            now_dt = datetime.now(tz=tz)
+            days_ahead = wd - now_dt.weekday()
+            if days_ahead < 0:
+                days_ahead += 7
+            target_day = now_dt + timedelta(days=days_ahead)
+            ts = _resolve_en_time(target_day, lower)
+            if ts is None:
+                ts = target_day.replace(hour=9, minute=0, second=0, microsecond=0).timestamp()
+            if ts <= time.time():
+                ts += 604800
+            first_fire = ts
+        else:
+            first_fire = _parse_en_absolute(text, tz)
         msg = _extract_en_message(text)
         result["type"] = "recurring"
         result["interval_seconds"] = interval
