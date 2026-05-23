@@ -58,12 +58,19 @@ WEEKDAYS_RU = {
     "воскресенье": 6, "воскресенья": 6,
 }
 
+# Множественные формы для "по [день]ам"
+WEEKDAYS_PLURAL_RU = {
+    "понедельникам": 0, "вторникам": 1, "средам": 2, "четвергам": 3,
+    "пятницам": 4, "субботам": 5, "воскресеньям": 6,
+}
+
 _ALL_UNITS = (
     r"секунд[у-ы]?|сек|минут[у-ыок]*|мин|часи?[кова]*|час[а-ов]*|ч(?=\s|$)"
     r"|дн[яейи]|день|дней|сутки?|суток|недел[юьие]|недель|месяц[а-ев]?"
 )
 
 _WEEKDAY_PAT = "|".join(WEEKDAYS_RU.keys())
+_WEEKDAY_PLURAL_PAT = "|".join(WEEKDAYS_PLURAL_RU.keys())
 
 def _parse_number(s: str) -> float | None:
     s = s.strip().lower()
@@ -198,6 +205,11 @@ def _parse_interval(text: str, tz: zoneinfo.ZoneInfo = None) -> int | None:
 
     m_wd_rec = re.search(r"\b(?:каждый|каждую|каждое)\s+(" + _WEEKDAY_PAT + r")\b", text)
     if m_wd_rec:
+        return 604800
+
+    # "по [день недели]ам" — каждую неделю в этот день
+    m_po = re.search(r"\bпо\s+(" + _WEEKDAY_PLURAL_PAT + r")\b", text)
+    if m_po:
         return 604800
 
     # раз в час/минуту/день/неделю (без числа)
@@ -419,10 +431,11 @@ def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | Non
             target += timedelta(days=1)
         return target.timestamp()
 
-    # "каждый/каждую/каждое [день недели]" — следующее вхождение
+    # "каждый/каждую/каждое [день недели]" или "по [день]ам" — следующее вхождение
     m_rec_wd = re.search(r"\b(?:каждый|каждую|каждое)\s+(" + _WEEKDAY_PAT + r")\b", lower)
-    if m_rec_wd:
-        wd = WEEKDAYS_RU[m_rec_wd.group(1)]
+    m_po_wd = re.search(r"\bпо\s+(" + _WEEKDAY_PLURAL_PAT + r")\b", lower)
+    if m_rec_wd or m_po_wd:
+        wd = WEEKDAYS_RU[m_rec_wd.group(1)] if m_rec_wd else WEEKDAYS_PLURAL_RU[m_po_wd.group(1)]
         now_dt = datetime.now(tz=tz)
         days_ahead = wd - now_dt.weekday()
         if days_ahead < 0:
@@ -931,7 +944,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         r"напоминай|\bставь напоминание|добавь напоминание|хочу чтобы ты напоминал|"
         r"напоминалку каждый|напоминалку каждые|ежедневно|ежечасно",
         lower
-    )) or bool(re.search(r"каждый|каждые|каждую|каждое|раз\s+в\s+", lower))
+    )) or bool(re.search(r"каждый|каждые|каждую|каждое|раз\s+в\s+|\bпо\s+(?:" + _WEEKDAY_PLURAL_PAT + r")\b", lower))
 
     if is_recurring:
         interval = _parse_interval(lower)
@@ -945,7 +958,8 @@ def parse(text: str, user_tz: str | None = None) -> dict:
             r"раз\s+в\s+(?:час|минуту|день|сутки|неделю|месяц)\b|"
             r"раз\s+в\s+[\wа-яё]+\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|сутки?|недел[юьи]|недель|месяц[а-ев]?)\b|"
             r"каждые?\s+[\wа-яё.,]+(?:\s+[\wа-яё]+)?\s+(?:секунд[у-ы]?|сек|минут[у-ы]?|мин|час[а-ов]*|ч|дн[яейи]|день|дней|недел[юьи]|недель)\b|"
-            r"(?:каждый|каждую|каждое)\s+(?:" + _WEEKDAY_PAT + r")\b",
+            r"(?:каждый|каждую|каждое)\s+(?:" + _WEEKDAY_PAT + r")\b|"
+            r"по\s+(?:" + _WEEKDAY_PLURAL_PAT + r")\b",
             "", text_norm_rec, flags=re.IGNORECASE
         )
         # first fire time if specified
