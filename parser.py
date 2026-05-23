@@ -59,7 +59,7 @@ WEEKDAYS_RU = {
 }
 
 _ALL_UNITS = (
-    r"секунд[у-ы]?|сек|минут[у-ыок]*|мин|часи?[кова]*|час[а-ов]*"
+    r"секунд[у-ы]?|сек|минут[у-ыок]*|мин|часи?[кова]*|час[а-ов]*|ч(?=\s|$)"
     r"|дн[яейи]|день|дней|сутки?|суток|недел[юьие]|недель|месяц[а-ев]?"
 )
 
@@ -99,6 +99,8 @@ def _normalize(text: str) -> str:
         (r"\bна\s+(\d{1,2}:\d{2})\b", r"в \1"),                              # на 23:00 → в 23:00
         (r"\bна\s+(\d{1,2})\s+(час)", r"в \1 \2"),                          # на 7 часов → в 7 часов
         (r"\bна\s+(\d{1,2})\s+(утра|дня|вечера|ночи)\b", r"в \1 \2"),       # на 7 утра → в 7 утра
+        (r"\b(?:около|примерно|где-?то)\s+(в\s+)?(\d{1,2}[:.]\d{2})\b", r"в \2"),  # около 15:00 → в 15:00
+        (r"\b(?:около|примерно|где-?то)\s+(в\s+)?(\d{1,2})\s+(час|утра|дня|вечера|ночи)\b", r"в \2 \3"),
         (r"\bна\s+(?=завтра\b|сегодня\b|послезавтра\b)", ""),               # на завтра → завтра
         (r"\bчасо\b", "часов"),
         (r"\bминутк?\b", "минут"),
@@ -126,9 +128,10 @@ def _resolve_tod(text: str) -> int | None:
 
 def _resolve_time(base_day: datetime, text: str) -> float | None:
     """Возвращает timestamp для base_day с учётом времени из текста."""
-    m_hm = re.search(r"в\s+(\d{1,2}):(\d{2})", text)
+    m_hm = re.search(r"в\s+(\d{1,2})[:.](\d{2})", text)
     m_h_tod = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\s*(утра|дня|вечера|ночи)\b", text)
     m_h  = re.search(r"в\s+(\d{1,2})\s+час(?:ов|а)?\b", text)
+    m_h1 = re.search(r"\bв\s+час\s+(дня|ночи|вечера)?\b", text)
     m_tod_d = re.search(r"в\s+(\d{1,2})(?::(\d{2}))?\s*(утра|дня|вечера|ночи)\b", text)
     m_s_h = re.search(r"\bс\s+(\d{1,2})(?::(\d{2}))?\s*час(?:ов|а)?\b", text)
     m_s_tod = re.search(r"\bс\s+(\d{1,2})\s*(утра|вечера|ночи|дня)\b", text)
@@ -151,6 +154,10 @@ def _resolve_time(base_day: datetime, text: str) -> float | None:
         h = int(m_h.group(1))
         if 0 <= h <= 23:
             return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
+    if m_h1:
+        tod = m_h1.group(1)
+        h = 1 if tod == "ночи" else 13
+        return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
     if m_s_h:
         h = int(m_s_h.group(1))
         mn = int(m_s_h.group(2) or 0)
@@ -161,7 +168,7 @@ def _resolve_time(base_day: datetime, text: str) -> float | None:
         h = h_raw % 12 if tod in ("утра", "ночи") else h_raw % 12 + 12
         if 0 <= h <= 23:
             return base_day.replace(hour=h, minute=0, second=0, microsecond=0).timestamp()
-    m_bare = re.search(r"\bв\s+(\d{1,2})(?::(\d{2}))?\b", text)
+    m_bare = re.search(r"\bв\s+(\d{1,2})(?:[:.](\d{2}))?\b", text)
     if m_bare:
         h = int(m_bare.group(1))
         mn = int(m_bare.group(2) or 0)
@@ -432,6 +439,13 @@ def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | Non
     if re.search(r"\bв\s+обед\b|\bобед\b", lower):
         return _today_or_tomorrow(13)
 
+    # "в час дня/ночи" — 13:00 или 01:00
+    m_h1 = re.search(r"\bв\s+час\s+(дня|ночи|вечера)?\b", lower)
+    if m_h1:
+        tod = m_h1.group(1)
+        h = 1 if tod == "ночи" else 13
+        return _today_or_tomorrow(h)
+
     # "с N часов/часа" — время начала
     m_s_h = re.search(r"\bс\s+(\d{1,2})(?::(\d{2}))?\s*час(?:ов|а)?\b", lower)
     if m_s_h:
@@ -469,14 +483,14 @@ def _parse_once_absolute(text: str, tz: zoneinfo.ZoneInfo = None) -> float | Non
             return _today_or_tomorrow(h)
 
     # "в N утра/дня/вечера/ночи"
-    m_tod = re.search(r"в\s+(\d{1,2})(?::(\d{2}))?\s*(утра|дня|вечера|ночи)\b", lower)
+    m_tod = re.search(r"в\s+(\d{1,2})(?:[:.](\d{2}))?\s*(утра|дня|вечера|ночи)\b", lower)
     if m_tod:
         h_raw, mn_raw, tod = int(m_tod.group(1)), int(m_tod.group(2) or 0), m_tod.group(3)
         h = h_raw % 12 if tod in ("утра", "ночи") else h_raw % 12 + 12
         return _today_or_tomorrow(h, mn_raw)
 
-    # "в N" или "в N:MM" — всегда трактуем как время, НЕ передаём в dateparser
-    m = re.search(r"\bв\s+(\d{1,2})(?::(\d{2}))?\b", lower)
+    # "в N" или "в N:MM"/"в N.MM" — всегда трактуем как время, НЕ передаём в dateparser
+    m = re.search(r"\bв\s+(\d{1,2})(?:[:.](\d{2}))?\b", lower)
     if m:
         h = int(m.group(1))
         mn = int(m.group(2)) if m.group(2) else 0
@@ -512,7 +526,7 @@ _DELTA_STRIP = (
     r"|через\s+час\b|через\s+минуту\b|через\s+неделю\b|через\s+(?:день|сутки)\b"
     r"|\bзавтра\b|\bпослезавтра\b|\bсегодня\b"
     rf"|{_WEEKDAY_STRIP}"
-    r"|\bв\s+\d{1,2}(?::\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?)?"
+    r"|\bв\s+\d{1,2}(?:[:.]\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?)?"
     rf"|\b(?:{_TOD_PAT})\b"
     rf"|за\s+{_NUM_PAT}\s+(?:{_ALL_UNITS})\s+до(?:\s+(?!в\s+\d)[а-яёА-ЯЁ]+){{0,6}}"  # за N до [чего-то]
 )
@@ -520,8 +534,9 @@ _DELTA_STRIP = (
 _WORD_HOUR_PAT = r"один|два|три|четыре|пять|шесть|семь|восемь|девять|десять|одиннадцать|двенадцать"
 
 _TIME_STRIP = (
-    r"(?:(?:завтра|сегодня)\s+)?в\s+\d{1,2}(?::\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?)?"
+    r"(?:(?:завтра|сегодня)\s+)?в\s+\d{1,2}(?:[:.]\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?|ч\b)?"
     rf"|\bв\s+(?:{_WORD_HOUR_PAT})\s*(?:час[а-ов]*\s+)?(?:утра|дня|вечера|ночи)?\b"
+    r"|\bв\s+час\s+(?:дня|ночи|вечера)?\b"
     r"|\bс\s+\d{1,2}(?::\d{2})?\s*час(?:ов|а)?\b"
     r"|\bс\s+\d{1,2}\s*(?:утра|вечера|ночи|дня)\b"
     rf"|\b(?:{_TOD_PAT})\b"
