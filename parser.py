@@ -864,6 +864,12 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
         if interval is None:
             result["error"] = "Specify interval: «every 2 hours», «every 30 minutes», «every day»"
             return result
+        if interval < 60:
+            result["error"] = "Minimum interval is 1 minute."
+            return result
+        if interval > 366 * 86400:
+            result["error"] = "Interval too large (max 1 year)."
+            return result
         # weekday-based recurring: compute next occurrence
         m_wd_ev = re.search(r'\bevery\s+(' + _EN_WD_PAT + r')\b', lower)
         if m_wd_ev:
@@ -904,6 +910,9 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
             next_fire = _parse_en_absolute(text_for_time, tz)
         if next_fire is None:
             result["error"] = "Specify time: «in 30 minutes», «at 9am», «tomorrow evening»"
+            return result
+        if next_fire > time.time() + 10 * 366 * 86400:
+            result["error"] = "Date too far in the future (max 10 years)."
             return result
 
         if _that:
@@ -959,6 +968,12 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         interval = _parse_interval(lower)
         if interval is None:
             result["error"] = "Укажи интервал: «каждый час», «каждые 30 минут», «каждые 2 дня»"
+            return result
+        if interval < 60:
+            result["error"] = "Минимальный интервал — 1 минута."
+            return result
+        if interval > 366 * 86400:
+            result["error"] = "Интервал слишком большой (максимум — 1 год)."
             return result
 
         text_norm_rec = _normalize(text_clean)
@@ -1059,6 +1074,9 @@ def parse(text: str, user_tz: str | None = None) -> dict:
 
         if next_fire is None:
             result["error"] = "Укажи время: «через 30 минут», «в 15:00», «завтра утром»"
+            return result
+        if next_fire > time.time() + 10 * 366 * 86400:
+            result["error"] = "Слишком далёкая дата (максимум — 10 лет)."
             return result
 
         msg = _extract_message(msg)
