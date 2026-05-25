@@ -947,6 +947,15 @@ def parse(text: str, user_tz: str | None = None) -> dict:
     )) or bool(re.search(r"каждый|каждые|каждую|каждое|раз\s+в\s+|\bпо\s+(?:" + _WEEKDAY_PLURAL_PAT + r")\b", lower))
 
     if is_recurring:
+        m_bad_h = re.search(r"\bв\s+(\d{1,3})\s*(?:час|:)", lower)
+        if m_bad_h and int(m_bad_h.group(1)) > 23:
+            result["error"] = f"Некорректное время — часов от 0 до 23, у тебя {m_bad_h.group(1)}."
+            return result
+        m_bad_m = re.search(r":\s*(\d{2,3})\b", lower)
+        if m_bad_m and int(m_bad_m.group(1)) > 59:
+            result["error"] = f"Некорректное время — минут от 0 до 59, у тебя {m_bad_m.group(1)}."
+            return result
+
         interval = _parse_interval(lower)
         if interval is None:
             result["error"] = "Укажи интервал: «каждый час», «каждые 30 минут», «каждые 2 дня»"
@@ -1059,9 +1068,8 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         return result
 
     result["error"] = (
-        "Не понял запрос. Примеры:\n"
-        "• напомни через 30 минут выйти\n"
-        "• напомни в 15:00 позвонить маме\n"
-        "• напоминай пить воду каждые 2 часа"
+        "Не понял команду. Попробуй так:\n"
+        "• напомни через час позвонить\n"
+        "• напоминай каждые 2 часа пить воду"
     )
     return result
