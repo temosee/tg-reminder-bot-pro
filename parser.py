@@ -1076,6 +1076,10 @@ def parse(text: str, user_tz: str | None = None) -> dict:
     ))
 
     if is_once:
+        if re.search(r"\b(?:прямо\s+)?сейчас\b", lower):
+            result["error"] = "Слишком близкое время — укажи минимум через 1 минуту."
+            return result
+
         # Detect obviously invalid time values
         m_bad_h = re.search(r"\bв\s+(\d{1,3})\s*(?:час|:)", lower)
         if m_bad_h and int(m_bad_h.group(1)) > 23:
