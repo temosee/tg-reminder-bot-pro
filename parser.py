@@ -950,8 +950,8 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
         if next_fire is None:
             result["error"] = "Specify time: «in 30 minutes», «at 9am», «tomorrow evening»"
             return result
-        if next_fire > time.time() + 10 * 366 * 86400:
-            result["error"] = "Date too far in the future (max 10 years)."
+        if next_fire > time.time() + 366 * 86400:
+            result["error"] = "Date too far in the future (max 1 year)."
             return result
 
         if _that:
@@ -1114,8 +1114,8 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         if next_fire is None:
             result["error"] = "Укажи время: «через 30 минут», «в 15:00», «завтра утром»"
             return result
-        if next_fire > time.time() + 10 * 366 * 86400:
-            result["error"] = "Слишком далёкая дата (максимум — 10 лет)."
+        if next_fire > time.time() + 366 * 86400:
+            result["error"] = "Слишком далёкая дата (максимум — 1 год)."
             return result
 
         msg = _extract_message(msg)
