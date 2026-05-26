@@ -712,10 +712,13 @@ def _resolve_en_time(base_day: datetime, lower: str) -> float | None:
         h, mn = int(m.group(1)), int(m.group(2) or 0)
         if m.group(3) == 'pm' and h != 12: h += 12
         elif m.group(3) == 'am' and h == 12: h = 0
-        return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
+        if 0 <= h <= 23 and 0 <= mn <= 59:
+            return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
     m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
     if m:
-        return base_day.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0).timestamp()
+        h, mn = int(m.group(1)), int(m.group(2))
+        if 0 <= h <= 23 and 0 <= mn <= 59:
+            return base_day.replace(hour=h, minute=mn, second=0, microsecond=0).timestamp()
     m = re.search(r'\bat\s+(\d{1,2})\b', lower)
     if m and 0 <= int(m.group(1)) <= 23:
         return base_day.replace(hour=int(m.group(1)), minute=0, second=0, microsecond=0).timestamp()
@@ -807,10 +810,14 @@ def _parse_en_absolute(text: str, tz: zoneinfo.ZoneInfo) -> float | None:
         h, mn = int(m.group(1)), int(m.group(2) or 0)
         if m.group(3) == 'pm' and h != 12: h += 12
         elif m.group(3) == 'am' and h == 12: h = 0
-        return _tod_tomorrow(h, mn)  # explicit am/pm — no nearest fallback
+        if 0 <= h <= 23 and 0 <= mn <= 59:
+            return _tod_tomorrow(h, mn)
 
     m = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', lower)
-    if m: return _tod_tomorrow(int(m.group(1)), int(m.group(2)))
+    if m:
+        h, mn = int(m.group(1)), int(m.group(2))
+        if 0 <= h <= 23 and 0 <= mn <= 59:
+            return _tod_tomorrow(h, mn)
 
     m = re.search(r'\bat\s+(\d{1,2})\b', lower)
     if m and 0 <= int(m.group(1)) <= 23:
@@ -883,6 +890,15 @@ _EN_BARE_HOUR = re.compile(r'\bat\s+(\d{1,2})\b(?!\s*(?:am|pm|:\d))', re.IGNOREC
 def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
     result = {"type": None, "message": None, "interval_seconds": None, "next_fire": None, "error": None}
     lower = text.lower().strip()
+
+    m_bad_h = re.search(r"\bat\s+(\d{1,3})(?::\d{2})?\b", lower)
+    if m_bad_h and int(m_bad_h.group(1)) > 23:
+        result["error"] = f"Invalid time — hours must be 0–23, got {m_bad_h.group(1)}."
+        return result
+    m_bad_m = re.search(r":(\d{2,3})\b", lower)
+    if m_bad_m and int(m_bad_m.group(1)) > 59:
+        result["error"] = f"Invalid time — minutes must be 0–59, got {m_bad_m.group(1)}."
+        return result
 
     is_recurring = bool(re.search(
         r'\bevery\s+|\bdaily\b|\bweekly\b|\bhourly\b|remind\s+me\s+every|once\s+(?:a|every)',
