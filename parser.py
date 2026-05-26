@@ -288,6 +288,27 @@ def _parse_once_delta(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
             return ts
         return None  # "сегодня" без времени → не распознаём как дельту
 
+    _MONTHS_RU = {
+        "января": 1, "февраля": 2, "марта": 3, "апреля": 4,
+        "мая": 5, "июня": 6, "июля": 7, "августа": 8,
+        "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+    }
+    m_dm = re.search(r"\b(\d{1,2})\s+(" + "|".join(_MONTHS_RU) + r")\b", text)
+    if m_dm:
+        day = int(m_dm.group(1))
+        month = _MONTHS_RU[m_dm.group(2)]
+        now = datetime.now(tz=tz)
+        for year_off in (0, 1):
+            try:
+                target = now.replace(year=now.year + year_off, month=month, day=day,
+                                     hour=9, minute=0, second=0, microsecond=0)
+            except ValueError:
+                return None
+            if target.timestamp() > time.time():
+                ts = _resolve_time(target, text)
+                return ts if ts is not None else target.timestamp()
+        return None
+
     _ORDINAL_TO_DAY = {
         "первого": 1, "второго": 2, "третьего": 3,
         "четвёртого": 4, "четвертого": 4, "пятого": 5, "шестого": 6,
@@ -541,11 +562,14 @@ _WEEKDAY_STRIP = (
 _WORD_NUMS = "|".join(re.escape(k) for k in WORD_NUMBERS.keys())
 _NUM_PAT = rf"(?:\d+(?:\.\d+)?|{_WORD_NUMS})"
 
+_MONTH_NAMES_RU = r"января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря"
+
 _DELTA_STRIP = (
     rf"через\s+[\wа-яё.,]+(?:\s+[\wа-яё]+)?\s+(?:{_ALL_UNITS})\b"  # через N единиц
     rf"|через\s+(?:{_ALL_UNITS})\s+{_NUM_PAT}\b"                   # через единиц N (только числа)
     rf"|(?:{_ALL_UNITS})\s+через\s+{_NUM_PAT}\b"                   # единиц через N (только числа)
     r"|через\s+час\b|через\s+минуту\b|через\s+неделю\b|через\s+(?:день|сутки|месяц|год)\b"
+    rf"|\b\d{{1,2}}\s+(?:{_MONTH_NAMES_RU})\b"                      # 28 мая
     r"|\bзавтра\b|\bпослезавтра\b|\bсегодня\b"
     rf"|{_WEEKDAY_STRIP}"
     r"|\bв\s+\d{1,2}(?:[:.]\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?)?"
