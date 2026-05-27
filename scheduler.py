@@ -8,6 +8,12 @@ from apscheduler.triggers.date import DateTrigger
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 import db
+from translations import t
+
+
+def _user_lang(user_id: int) -> str:
+    u = db.get_user(user_id)
+    return (u.get('language') or 'ru') if u else 'ru'
 
 logger = logging.getLogger(__name__)
 
@@ -22,16 +28,17 @@ def _job_id_recurring(reminder_id: int) -> str:
     return f"recurring_{reminder_id}"
 
 async def _send_once(bot, chat_id: int, message: str, reminder_id: int):
+    lang = _user_lang(chat_id)
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⏩ +15 мин", callback_data=f"snooze_{reminder_id}_15"),
-            InlineKeyboardButton("⏩ +1 час",  callback_data=f"snooze_{reminder_id}_60"),
+            InlineKeyboardButton(t(lang, 'snooze_15m'), callback_data=f"snooze_{reminder_id}_15"),
+            InlineKeyboardButton(t(lang, 'snooze_1h'),  callback_data=f"snooze_{reminder_id}_60"),
         ],
         [
-            InlineKeyboardButton("⏩ +3 часа",  callback_data=f"snooze_{reminder_id}_180"),
-            InlineKeyboardButton("⏩ Завтра",   callback_data=f"snooze_{reminder_id}_1440"),
+            InlineKeyboardButton(t(lang, 'snooze_3h'), callback_data=f"snooze_{reminder_id}_180"),
+            InlineKeyboardButton(t(lang, 'snooze_tomorrow'), callback_data=f"snooze_{reminder_id}_1440"),
         ],
-        [InlineKeyboardButton("✅ Принял",     callback_data=f"dismiss_{reminder_id}")],
+        [InlineKeyboardButton(t(lang, 'btn_done'), callback_data=f"dismiss_{reminder_id}")],
     ])
     PENDING_SNOOZE[reminder_id] = {"message": message, "chat_id": chat_id}
     try:
@@ -86,7 +93,8 @@ def restore_jobs(bot):
             if row["next_fire"] and row["next_fire"] > time.time():
                 add_once_job(bot, row["id"], row["chat_id"], row["message"], row["next_fire"])
             else:
-                overdue_message = f"(опоздало) {row['message']}"
+                lang = _user_lang(row["chat_id"])
+                overdue_message = t(lang, 'overdue', msg=row['message'])
                 add_once_job(bot, row["id"], row["chat_id"], overdue_message, time.time() + 5)
 
         elif row["type"] == "recurring":

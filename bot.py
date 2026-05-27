@@ -617,7 +617,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         await update.message.reply_text(error_msg, reply_markup=kb)
         return
 
-    ok, err = middleware.check_message_length(text)
+    ok, err = middleware.check_message_length(text, lang)
     if not ok:
         await update.message.reply_text(err, reply_markup=kb)
         return
@@ -627,7 +627,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     created_ids = []
 
     for _, parsed in results:
-        ok, err = middleware.check_new_reminder(user.id)
+        ok, err = middleware.check_new_reminder(user.id, lang)
         if not ok:
             await update.message.reply_text(err, reply_markup=kb)
             return
