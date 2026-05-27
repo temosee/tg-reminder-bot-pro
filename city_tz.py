@@ -150,6 +150,7 @@ _OFFSET_TO_IANA = {
     570:  "Australia/Adelaide", 600: "Australia/Sydney",
     630:  "Pacific/Norfolk", 660: "Pacific/Guadalcanal",
     720:  "Pacific/Auckland", 780: "Pacific/Apia",
+    840:  "Pacific/Kiritimati",
 }
 
 def _offset_to_tz(city_input: str) -> tuple[str | None, str | None]:
@@ -180,6 +181,8 @@ def city_to_timezone(city_input: str) -> tuple[str | None, str | None]:
     tz_offset, display_offset = _offset_to_tz(city)
     if tz_offset:
         return tz_offset, display_offset
+    if _OFFSET_RE.match(city):
+        return None, None  # похоже на офсет, но невалидный — не геокодим
 
     # apply aliases
     alias_target = _ALIASES.get(city_lower)
