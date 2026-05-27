@@ -64,6 +64,10 @@ STRINGS = {
         'snooze_tomorrow': "⏩ Завтра",
         'btn_done':        "✅ Принял",
         'overdue':         "(опоздало) {msg}",
+        'confirm_delete_all': "Удалить все {n} напоминаний?",
+        'btn_yes':         "✅ Да",
+        'btn_no':          "❌ Нет",
+        'delete_cancelled': "Отмена.",
     },
     'en': {
         'welcome_new':     "Hey, {name}! I'm a reminder bot. Enter your city so reminders arrive on time!",
@@ -130,6 +134,10 @@ STRINGS = {
         'snooze_tomorrow': "⏩ Tomorrow",
         'btn_done':        "✅ Done",
         'overdue':         "(missed) {msg}",
+        'confirm_delete_all': "Delete all {n} reminders?",
+        'btn_yes':         "✅ Yes",
+        'btn_no':          "❌ No",
+        'delete_cancelled': "Cancelled.",
     },
 }
 

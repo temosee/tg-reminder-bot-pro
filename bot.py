@@ -300,6 +300,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.delete_message()
         return
 
+    # confirm delete all
+    if query.data == "delall_yes":
+        reminders = await _run(db.get_reminders, user.id)
+        for r in reminders:
+            sched.remove_job(r["id"], r["type"])
+            await _run(db.delete_reminder, r["id"], user.id)
+        await query.edit_message_text(t(lang, 'all_deleted', count=len(reminders)))
+        return
+    if query.data == "delall_no":
+        await query.edit_message_text(t(lang, 'delete_cancelled'))
+        return
+
     # snooze
     if query.data.startswith("snooze_"):
         _, rid_str, mins_str = query.data.split("_")
@@ -507,10 +519,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         if not reminders:
             await update.message.reply_text(t(lang, 'none_to_delete'), reply_markup=kb)
             return
-        for r in reminders:
-            sched.remove_job(r["id"], r["type"])
-            db.delete_reminder(r["id"], user.id)
-        await update.message.reply_text(t(lang, 'all_deleted', count=len(reminders)), reply_markup=kb)
+        confirm_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(t(lang, 'btn_yes'), callback_data="delall_yes"),
+            InlineKeyboardButton(t(lang, 'btn_no'), callback_data="delall_no"),
+        ]])
+        await update.message.reply_text(
+            t(lang, 'confirm_delete_all', n=len(reminders)),
+            reply_markup=confirm_kb,
+        )
         return
 
     # delete last EN
