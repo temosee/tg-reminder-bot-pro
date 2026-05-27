@@ -88,27 +88,35 @@ def remove_job(reminder_id: int, type_: str):
 
 def restore_jobs(bot):
     rows = db.get_all_reminders()
+    overdue_offset = 0
     for row in rows:
-        if row["type"] == "once":
-            if row["next_fire"] and row["next_fire"] > time.time():
-                add_once_job(bot, row["id"], row["chat_id"], row["message"], row["next_fire"])
-            else:
-                lang = _user_lang(row["chat_id"])
-                overdue_message = t(lang, 'overdue', msg=row['message'])
-                add_once_job(bot, row["id"], row["chat_id"], overdue_message, time.time() + 5)
+        try:
+            if row["type"] == "once":
+                if row["next_fire"] and row["next_fire"] > time.time():
+                    add_once_job(bot, row["id"], row["chat_id"], row["message"], row["next_fire"])
+                else:
+                    lang = _user_lang(row["chat_id"])
+                    overdue_message = t(lang, 'overdue', msg=row['message'])
+                    overdue_offset += 2
+                    add_once_job(bot, row["id"], row["chat_id"], overdue_message, time.time() + 5 + overdue_offset)
 
-        elif row["type"] == "recurring":
-            next_fire = row["next_fire"]
-            if next_fire:
-                now = time.time()
-                if next_fire < now:
-                    elapsed = now - next_fire
-                    periods_missed = int(elapsed / row["interval_seconds"]) + 1
-                    next_fire = next_fire + periods_missed * row["interval_seconds"]
-                    db.update_next_fire(row["id"], next_fire)
-                start_date = datetime.fromtimestamp(next_fire, tz=timezone.utc)
-            else:
-                start_date = None
+            elif row["type"] == "recurring":
+                if not row.get("interval_seconds"):
+                    logger.warning(f"Skip recurring {row['id']}: no interval_seconds")
+                    continue
+                next_fire = row["next_fire"]
+                if next_fire:
+                    now = time.time()
+                    if next_fire < now:
+                        elapsed = now - next_fire
+                        periods_missed = int(elapsed / row["interval_seconds"]) + 1
+                        next_fire = next_fire + periods_missed * row["interval_seconds"]
+                        db.update_next_fire(row["id"], next_fire)
+                    start_date = datetime.fromtimestamp(next_fire, tz=timezone.utc)
+                else:
+                    start_date = None
 
-            add_recurring_job(bot, row["id"], row["chat_id"], row["message"],
-                               row["interval_seconds"], start_date=start_date)
+                add_recurring_job(bot, row["id"], row["chat_id"], row["message"],
+                                   row["interval_seconds"], start_date=start_date)
+        except Exception as e:
+            logger.error(f"Failed to restore reminder {row.get('id')}: {e}")
