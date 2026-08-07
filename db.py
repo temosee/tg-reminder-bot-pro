@@ -1,21 +1,63 @@
 import time
 import os
+import threading
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 from config import DATABASE_URL
 
-_pool = psycopg2.pool.ThreadedConnectionPool(2, 10, DATABASE_URL)
-
 from contextlib import contextmanager
+
+_pool = None
+_pool_lock = threading.Lock()
+
+def _get_pool():
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = psycopg2.pool.ThreadedConnectionPool(
+                    2, 10, DATABASE_URL,
+                    keepalives=1,
+                    keepalives_idle=30,
+                    keepalives_interval=10,
+                    keepalives_count=5,
+                )
+    return _pool
+
+def _alive(conn) -> bool:
+    if conn.closed:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        conn.rollback()
+        return True
+    except psycopg2.Error:
+        return False
 
 @contextmanager
 def get_conn():
-    conn = _pool.getconn()
+    pool = _get_pool()
+    # после простоя пулер рвёт коннекты, а пул продолжает их раздавать
+    conn = None
+    for _ in range(pool.maxconn):
+        candidate = pool.getconn()
+        if _alive(candidate):
+            conn = candidate
+            break
+        pool.putconn(candidate, close=True)
+    if conn is None:
+        conn = pool.getconn()
     try:
         yield conn
     finally:
-        _pool.putconn(conn)
+        try:
+            if not conn.closed:
+                conn.rollback()
+        except psycopg2.Error:
+            pass
+        pool.putconn(conn, close=bool(conn.closed))
 
 def init_db():
     with get_conn() as conn:
