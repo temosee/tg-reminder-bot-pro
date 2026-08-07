@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import zoneinfo
 
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.error import NetworkError
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes
@@ -729,6 +730,21 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+
+    async def on_error(update, context):
+        logger.error("Ошибка обработки апдейта", exc_info=context.error)
+        chat = update.effective_chat if isinstance(update, Update) else None
+        # обрывы связи с телеграмом лечатся ретраем, дёргать юзера незачем
+        if not chat or isinstance(context.error, NetworkError):
+            return
+        code = (update.effective_user.language_code or "") if update.effective_user else ""
+        lang = 'en' if code.startswith('en') else 'ru'
+        try:
+            await context.bot.send_message(chat_id=chat.id, text=t(lang, 'error_generic'))
+        except Exception:
+            pass
+
+    app.add_error_handler(on_error)
 
     async def on_startup(app):
         sched.restore_jobs(app.bot)
