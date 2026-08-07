@@ -6,6 +6,7 @@ import time as _time
 from datetime import datetime, timezone
 import zoneinfo
 
+import psycopg2
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.error import NetworkError
 from telegram.ext import (
@@ -717,8 +718,19 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await handle_message(update, context, _text=text)
 
+def init_db_with_retry(attempts: int = 5, delay: int = 5):
+    for attempt in range(1, attempts + 1):
+        try:
+            db.init_db()
+            return
+        except psycopg2.Error as e:
+            logger.error(f"База недоступна (попытка {attempt}): {e}")
+            if attempt == attempts:
+                raise
+            _time.sleep(delay)
+
 def main():
-    db.init_db()
+    init_db_with_retry()
 
     app = Application.builder().token(config.TOKEN).build()
 
