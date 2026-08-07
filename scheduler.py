@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from datetime import datetime, timezone
@@ -28,7 +29,7 @@ def _job_id_recurring(reminder_id: int) -> str:
     return f"recurring_{reminder_id}"
 
 async def _send_once(bot, chat_id: int, message: str, reminder_id: int):
-    lang = _user_lang(chat_id)
+    lang = await asyncio.to_thread(_user_lang, chat_id)
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(t(lang, 'snooze_15m'), callback_data=f"snooze_{reminder_id}_15"),
@@ -46,14 +47,27 @@ async def _send_once(bot, chat_id: int, message: str, reminder_id: int):
     except Exception as e:
         logger.error(f"Ошибка отправки разового напоминания {reminder_id}: {e}")
     finally:
-        db.delete_reminder_by_id(reminder_id)
+        await _delete_sent(reminder_id)
+
+async def _delete_sent(reminder_id: int):
+    # если запись не удалить, при следующем старте она уйдёт повторно
+    for attempt in range(3):
+        try:
+            await asyncio.to_thread(db.delete_reminder_by_id, reminder_id)
+            return
+        except Exception as e:
+            logger.error(f"Не удалось удалить напоминание {reminder_id}: {e}")
+            await asyncio.sleep(2 * (attempt + 1))
 
 async def _send_recurring(bot, chat_id: int, message: str, reminder_id: int, interval_seconds: int):
     try:
         await bot.send_message(chat_id=chat_id, text=f"🔔 {message}")
-        db.update_next_fire(reminder_id, time.time() + interval_seconds)
     except Exception as e:
         logger.error(f"Ошибка отправки повторяющегося напоминания: {e}")
+    try:
+        await asyncio.to_thread(db.update_next_fire, reminder_id, time.time() + interval_seconds)
+    except Exception as e:
+        logger.error(f"Не удалось обновить next_fire у {reminder_id}: {e}")
 
 def add_once_job(bot, reminder_id: int, chat_id: int, message: str, next_fire: float):
     run_date = datetime.fromtimestamp(next_fire, tz=timezone.utc)
@@ -87,7 +101,11 @@ def remove_job(reminder_id: int, type_: str):
         pass
 
 def restore_jobs(bot):
-    rows = db.get_all_reminders()
+    try:
+        rows = db.get_all_reminders()
+    except Exception as e:
+        logger.error(f"Не удалось прочитать напоминания при старте: {e}")
+        return
     overdue_offset = 0
     for row in rows:
         try:
