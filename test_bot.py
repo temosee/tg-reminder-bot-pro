@@ -131,6 +131,12 @@ def case_move_menu_offsets():
         errors.append(f"нет вариантов переноса: {missing}")
     if "back_list" not in cbs:
         errors.append("нет кнопки возврата к списку")
+    labels = all_labels(markup)
+    # «Завтра» тут читается двусмысленно, если напоминание и так на завтра
+    if any("Завтра" in l for l in labels):
+        errors.append(f"в меню переноса осталось «Завтра»: {labels}")
+    if not any("+1 день" in l for l in labels):
+        errors.append(f"нет варианта «+1 день»: {labels}")
     return errors
 
 

@@ -248,7 +248,7 @@ def build_reminders_message(reminders, user_id: int, lang: str, tz_name: str = N
 MOVE_OPTIONS = [
     ('snooze_15m', 15), ('snooze_30m', 30),
     ('snooze_1h', 60), ('snooze_3h', 180),
-    ('snooze_6h', 360), ('snooze_tomorrow', 1440),
+    ('snooze_6h', 360), ('move_1d', 1440),
 ]
 
 def recover_snooze_info(message):
