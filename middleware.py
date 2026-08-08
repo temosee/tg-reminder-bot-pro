@@ -6,14 +6,10 @@ import db
 from translations import t
 
 _flood_history: dict[int, list] = defaultdict(list)
-_daily_counter: dict[int, dict] = {}
 
-def _today_key() -> str:
-    import datetime
-    return datetime.date.today().isoformat()
-
-def check_message(user_id: int) -> tuple[bool, str | None]:
-    user = db.get_user(user_id)
+def check_message(user_id: int, user=None) -> tuple[bool, str | None]:
+    if user is None:
+        user = db.get_user(user_id)
     if user and user["is_banned"]:
         return False, "banned"
 
@@ -31,14 +27,8 @@ def check_new_reminder(user_id: int, lang: str = "ru") -> tuple[bool, str | None
     if active >= config.MAX_ACTIVE_REMINDERS:
         return False, t(lang, 'limit_active', n=config.MAX_ACTIVE_REMINDERS)
 
-    today = _today_key()
-    record = _daily_counter.get(user_id, {})
-    if record.get("date") != today:
-        record = {"date": today, "count": 0}
-    if record["count"] >= config.MAX_REMINDERS_PER_DAY:
+    if not db.take_daily_slot(user_id, config.MAX_REMINDERS_PER_DAY):
         return False, t(lang, 'limit_daily', n=config.MAX_REMINDERS_PER_DAY)
-    record["count"] += 1
-    _daily_counter[user_id] = record
 
     return True, None
 
