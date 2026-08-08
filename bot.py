@@ -219,8 +219,9 @@ def _fmt_datetime(dt: datetime, lang: str) -> str:
 def build_reminders_message(reminders, user_id: int, lang: str, tz_name: str = None):
     if tz_name is None:
         tz_name = str(_get_user_tz(user_id))
+    lines = [t(lang, 'reminders_header')]
     buttons = []
-    for r in reminders:
+    for n, r in enumerate(reminders, 1):
         if r.get("days_of_week"):
             days_str = t(lang, 'days_weekdays' if r["days_of_week"] == "mon-fri" else 'days_weekend')
             label = t(lang, 'label_days', days=days_str, time=r.get("at_time") or "09:00", msg=r['message'])
@@ -234,16 +235,15 @@ def build_reminders_message(reminders, user_id: int, lang: str, tz_name: str = N
         else:
             dt = _local_dt(r["next_fire"], user_id, tz_name)
             label = t(lang, 'label_once', time=_fmt_datetime(dt, lang), msg=r['message'])
+        lines.append(f"{n}. {html.escape(label)}")
+        row = []
         # у напоминаний по дням недели переносить нечего — только удалить
-        movable = not r.get("days_of_week")
-        buttons.append([
-            InlineKeyboardButton(f"{'⏩ ' if movable else ''}{label[:36]}",
-                                 callback_data=f"move_{r['id']}" if movable else "noop"),
-            InlineKeyboardButton("🗑", callback_data=f"del_{r['id']}"),
-        ])
+        if not r.get("days_of_week"):
+            row.append(InlineKeyboardButton(t(lang, 'btn_move_n', n=n), callback_data=f"move_{r['id']}"))
+        row.append(InlineKeyboardButton(t(lang, 'btn_delete_n', n=n), callback_data=f"del_{r['id']}"))
+        buttons.append(row)
     buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
-    header = t(lang, 'reminders_header') + "\n" + t(lang, 'reminders_hint')
-    return header, InlineKeyboardMarkup(buttons)
+    return "\n".join(lines), InlineKeyboardMarkup(buttons)
 
 MOVE_OPTIONS = [
     ('snooze_15m', 15), ('snooze_30m', 30),
@@ -769,6 +769,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     bot = context.bot
     reply_lines = []
     created_ids = []
+    movable_ids = set()
 
     for _, parsed in results:
         ok, err = middleware.check_new_reminder(user.id, lang)
@@ -783,6 +784,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         )
         await _run(db.increment_reminders_created, user.id)
         created_ids.append(reminder_id)
+        if not parsed.get("days_of_week"):
+            movable_ids.add(reminder_id)
         until_str = ""
         if parsed.get("until"):
             until_dt = _local_dt(parsed["until"], user.id, user_tz)
@@ -820,11 +823,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         tz_warning = "\n\n" + t(lang, 'tz_missing')
         context.user_data["awaiting_city"] = True
 
-    del_label = "Удалить" if lang == "ru" else "Delete"
-    confirm_inline = InlineKeyboardMarkup([
-        [InlineKeyboardButton(del_label, callback_data=f"del_{rid}")] for rid in created_ids
-    ])
-    await update.message.reply_text("\n".join(reply_lines) + " ✅" + tz_warning, reply_markup=confirm_inline)
+    rows = []
+    for n, rid in enumerate(created_ids, 1):
+        # номер в подписи нужен только когда напоминаний несколько
+        suffix = f" {n}" if len(created_ids) > 1 else ""
+        row = []
+        if rid in movable_ids:
+            row.append(InlineKeyboardButton(t(lang, 'btn_move_n', n="").strip() + suffix,
+                                            callback_data=f"move_{rid}"))
+        row.append(InlineKeyboardButton(t(lang, 'btn_delete_n', n="").strip() + suffix,
+                                        callback_data=f"del_{rid}"))
+        rows.append(row)
+    await update.message.reply_text("\n".join(reply_lines) + " ✅" + tz_warning,
+                                    reply_markup=InlineKeyboardMarkup(rows))
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user

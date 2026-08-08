@@ -42,6 +42,19 @@ def case_notes_escaped():
     return errors
 
 
+def case_once_row_movable():
+    r = {"id": 7, "type": "once", "message": "вынести мусор",
+         "next_fire": time.time() + 3600, "interval_seconds": None}
+    text, markup = bot.build_reminders_message([r], 1, "ru", MSK)
+    cbs = all_callbacks(markup)
+    errors = []
+    if "move_7" not in cbs:
+        errors.append(f"нет кнопки переноса: {cbs}")
+    if "del_7" not in cbs:
+        errors.append(f"нет кнопки удаления: {cbs}")
+    return errors
+
+
 def case_interval_wording():
     checks = {
         86400: "каждый день",
@@ -59,41 +72,52 @@ def case_interval_wording():
         got = bot.format_interval(seconds, "ru")
         if got != want:
             errors.append(f"{seconds}s: want={want!r} got={got!r}")
-    for seconds, want in {86400: "every day", 2 * 86400: "every 2 days", 3600: "every hour"}.items():
+    en = {86400: "every day", 2 * 86400: "every 2 days", 3600: "every hour"}
+    for seconds, want in en.items():
         got = bot.format_interval(seconds, "en")
         if got != want:
             errors.append(f"{seconds}s (en): want={want!r} got={got!r}")
     return errors
 
 
-def case_once_row_movable():
-    r = {"id": 7, "type": "once", "message": "вынести мусор",
-         "next_fire": time.time() + 3600, "interval_seconds": None}
-    _, markup = bot.build_reminders_message([r], 1, "ru", MSK)
-    cbs = all_callbacks(markup)
+def case_list_text_not_truncated():
+    long_msg = "позвонить в поликлинику и записаться к стоматологу на среду"
+    rows = [
+        {"id": 1, "type": "recurring", "message": long_msg, "next_fire": time.time() + 600,
+         "interval_seconds": 86400},
+        {"id": 2, "type": "once", "message": long_msg, "next_fire": time.time() + 600,
+         "interval_seconds": None},
+    ]
+    text, markup = bot.build_reminders_message(rows, 1, "ru", MSK)
     errors = []
-    if "move_7" not in cbs:
-        errors.append(f"нет кнопки переноса: {cbs}")
-    if "del_7" not in cbs:
-        errors.append(f"нет кнопки удаления: {cbs}")
+    if text.count(long_msg) != 2:
+        errors.append("текст напоминания обрезан или отсутствует в сообщении")
+    if "каждые 1 день" in text:
+        errors.append("кривая форма «каждые 1 день»")
+    if "каждый день" not in text:
+        errors.append(f"не видно интервала: {text}")
+    labels = all_labels(markup)
+    if not any("Перенести 1" in l for l in labels):
+        errors.append(f"нет подписанной кнопки переноса: {labels}")
+    if not any("Удалить 2" in l for l in labels):
+        errors.append(f"нет подписанной кнопки удаления: {labels}")
     return errors
 
 
 def case_weekday_row_not_movable():
     r = {"id": 8, "type": "recurring", "message": "зарядка", "next_fire": None,
          "interval_seconds": None, "days_of_week": "mon-fri", "at_time": "09:00"}
-    _, markup = bot.build_reminders_message([r], 1, "ru", MSK)
+    text, markup = bot.build_reminders_message([r], 1, "ru", MSK)
     cbs = all_callbacks(markup)
-    labels = " ".join(all_labels(markup))
     errors = []
     if "move_8" in cbs:
         errors.append("предложен перенос напоминания по дням недели")
     if "del_8" not in cbs:
         errors.append("нет кнопки удаления")
-    if "будням" not in labels:
-        errors.append(f"в подписи не видно дней недели: {labels}")
-    if "09:00" not in labels:
-        errors.append(f"в подписи не видно времени: {labels}")
+    if "будням" not in text:
+        errors.append(f"в списке не видно дней недели: {text}")
+    if "09:00" not in text:
+        errors.append(f"в списке не видно времени: {text}")
     return errors
 
 
@@ -186,6 +210,7 @@ def case_grace_time_is_generous():
 cases = [
     ("заметки экранируются", case_notes_escaped),
     ("интервалы читаются по-русски", case_interval_wording),
+    ("текст в списке не обрезается", case_list_text_not_truncated),
     ("разовое напоминание можно перенести", case_once_row_movable),
     ("напоминание по дням недели переносить нельзя", case_weekday_row_not_movable),
     ("меню переноса со всеми вариантами", case_move_menu_offsets),
