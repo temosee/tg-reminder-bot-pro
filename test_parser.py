@@ -3,6 +3,8 @@
     python -X utf8 test_parser.py
 """
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import parser as p
 
 NOW = time.time()
@@ -358,6 +360,77 @@ error_tests = [
     ("напомни в 24:00 лечь",                        "23"),
 ]
 
+MSK = "Europe/Moscow"
+
+def check_fields(text, **expected):
+    r = p.parse(text, user_tz=MSK)
+    errors = []
+    if r.get("error"):
+        errors.append(f"got error: {r['error'][:80]}")
+    for key, want in expected.items():
+        got = r.get(key)
+        if key == "until_date":
+            got = datetime.fromtimestamp(r["until"], ZoneInfo(MSK)).strftime("%d.%m") if r.get("until") else None
+        if got != want:
+            errors.append(f"{key}: want={want!r} got={got!r}")
+    return errors
+
+def check_weekday_fire(text, allowed_weekdays, hour, minute=0):
+    r = p.parse(text, user_tz=MSK)
+    if r.get("error"):
+        return [f"got error: {r['error'][:80]}"]
+    if not r.get("next_fire"):
+        return ["next_fire не задан"]
+    dt = datetime.fromtimestamp(r["next_fire"], ZoneInfo(MSK))
+    errors = []
+    if dt.weekday() not in allowed_weekdays:
+        errors.append(f"первый запуск в {dt:%A}, ожидались {sorted(allowed_weekdays)}")
+    if (dt.hour, dt.minute) != (hour, minute):
+        errors.append(f"время {dt.hour:02d}:{dt.minute:02d}, ожидалось {hour:02d}:{minute:02d}")
+    if dt.timestamp() <= NOW:
+        errors.append("первый запуск в прошлом")
+    return errors
+
+field_tests = [
+    ("напоминай по будням в 9:00 делать зарядку",
+     dict(type="recurring", days_of_week="mon-fri", at_time="09:00", message="делать зарядку", interval_seconds=None)),
+    ("напоминай по рабочим дням в 8:30 выходить из дома",
+     dict(type="recurring", days_of_week="mon-fri", at_time="08:30", message="выходить из дома")),
+    ("напоминай каждый будний день в 19:00 учить английский",
+     dict(type="recurring", days_of_week="mon-fri", at_time="19:00", message="учить английский")),
+    ("напоминай по выходным в 11 утра звонить бабушке",
+     dict(type="recurring", days_of_week="sat,sun", at_time="11:00", message="звонить бабушке")),
+    ("напоминай каждые выходные в 10:00 убираться",
+     dict(type="recurring", days_of_week="sat,sun", at_time="10:00", message="убираться")),
+    ("напоминай по будням делать зарядку",
+     dict(days_of_week="mon-fri", at_time="09:00")),
+    ("напоминай по будням вечером гулять",
+     dict(days_of_week="mon-fri", at_time="17:00")),
+
+    ("remind me on weekdays at 8am to run",
+     dict(type="recurring", days_of_week="mon-fri", at_time="08:00", message="run")),
+    ("remind me on weekends at 10am to rest",
+     dict(type="recurring", days_of_week="sat,sun", at_time="10:00", message="rest")),
+
+    ("напоминай каждый день в 9:00 пить таблетки до 1 сентября",
+     dict(type="recurring", interval_seconds=86400, message="пить таблетки", until_date="01.09")),
+    ("напоминай каждый час пить воду до 31.12",
+     dict(type="recurring", interval_seconds=3600, message="пить воду", until_date="31.12")),
+    ("напоминай по будням в 9:00 зарядка до 1 декабря",
+     dict(days_of_week="mon-fri", at_time="09:00", message="зарядка", until_date="01.12")),
+
+    ("напомни через 5 минут вынести мусор",
+     dict(type="once", days_of_week=None, at_time=None, until=None)),
+    ("напоминай каждый день пить воду",
+     dict(type="recurring", days_of_week=None, until=None, interval_seconds=86400)),
+]
+
+weekday_fire_tests = [
+    ("напоминай по будням в 9:00 зарядка", {0, 1, 2, 3, 4}, 9, 0),
+    ("напоминай по выходным в 11:30 отдых", {5, 6}, 11, 30),
+    ("remind me on weekdays at 7am to run", {0, 1, 2, 3, 4}, 7, 0),
+]
+
 ok = fail = 0
 for text, exp_type, exp_msg, exp_interval, exp_delta in tests:
     errs = check(text, exp_type, exp_msg, exp_interval, exp_delta)
@@ -372,6 +445,28 @@ for text, exp_type, exp_msg, exp_interval, exp_delta in tests:
 
 for text, substr in error_tests:
     errs = check_error(text, substr)
+    if errs:
+        fail += 1
+        print(f"[FAIL] {text!r}")
+        for e in errs:
+            print(f"       {e}")
+    else:
+        ok += 1
+        print(f"[OK]   {text!r}")
+
+for text, expected in field_tests:
+    errs = check_fields(text, **expected)
+    if errs:
+        fail += 1
+        print(f"[FAIL] {text!r}")
+        for e in errs:
+            print(f"       {e}")
+    else:
+        ok += 1
+        print(f"[OK]   {text!r}")
+
+for text, allowed, hour, minute in weekday_fire_tests:
+    errs = check_weekday_fire(text, allowed, hour, minute)
     if errs:
         fail += 1
         print(f"[FAIL] {text!r}")

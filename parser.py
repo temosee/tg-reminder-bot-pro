@@ -79,6 +79,94 @@ _ALL_UNITS = (
 _WEEKDAY_PAT = "|".join(WEEKDAYS_RU.keys())
 _WEEKDAY_PLURAL_PAT = "|".join(WEEKDAYS_PLURAL_RU.keys())
 
+MONTHS_RU = {
+    "января": 1, "февраля": 2, "марта": 3, "апреля": 4,
+    "мая": 5, "июня": 6, "июля": 7, "августа": 8,
+    "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+}
+
+WEEKDAY_SETS_RU = {
+    "mon-fri": r"по\s+будням|по\s+рабочим\s+дням|каждый\s+будний\s+день",
+    "sat,sun": r"по\s+выходным|каждые\s+выходные",
+}
+WEEKDAY_SETS_EN = {
+    "mon-fri": r"\bevery\s+weekday\b|\bon\s+weekdays\b|\bweekdays\b",
+    "sat,sun": r"\bevery\s+weekend\b|\bon\s+weekends\b|\bweekends\b",
+}
+
+_UNTIL_RU = (
+    r"\bдо\s+(?:(\d{1,2})\s+(" + "|".join(MONTHS_RU) + r")(?:\s+(\d{4}))?"
+    r"|(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?)"
+)
+_UNTIL_EN = (
+    r"\b(?:until|till|through)\s+(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?"
+)
+
+def _match_weekday_set(text: str, sets: dict) -> str | None:
+    for days, pattern in sets.items():
+        if re.search(pattern, text, re.IGNORECASE):
+            return days
+    return None
+
+def _end_of_day(year: int, month: int, day: int, tz) -> float | None:
+    try:
+        return datetime(year, month, day, 23, 59, 59, tzinfo=tz).timestamp()
+    except ValueError:
+        return None
+
+def _parse_until(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
+    tz = tz or _get_tz(None)
+    now = datetime.now(tz=tz)
+
+    m = re.search(_UNTIL_RU, text, re.IGNORECASE)
+    if m:
+        if m.group(1):
+            day, month = int(m.group(1)), MONTHS_RU[m.group(2).lower()]
+            year = int(m.group(3)) if m.group(3) else now.year
+        else:
+            day, month = int(m.group(4)), int(m.group(5))
+            year = m.group(6)
+            year = int(year) if year else now.year
+            if year < 100:
+                year += 2000
+        ts = _end_of_day(year, month, day, tz)
+        if ts is not None and ts < time.time() and not (m.group(3) or m.group(6)):
+            ts = _end_of_day(year + 1, month, day, tz)
+        return ts
+
+    m = re.search(_UNTIL_EN, text, re.IGNORECASE)
+    if m:
+        day, month = int(m.group(1)), int(m.group(2))
+        year = m.group(3)
+        year = int(year) if year else now.year
+        if year < 100:
+            year += 2000
+        ts = _end_of_day(year, month, day, tz)
+        if ts is not None and ts < time.time() and not m.group(3):
+            ts = _end_of_day(year + 1, month, day, tz)
+        return ts
+
+    return None
+
+def _time_for_weekday_set(text: str, tz: zoneinfo.ZoneInfo) -> tuple[int, int]:
+    base = datetime.now(tz=tz).replace(second=0, microsecond=0)
+    ts = _resolve_time(base, text)
+    if ts is None:
+        hour = _resolve_tod(text)
+        return (hour, 0) if hour is not None else (9, 0)
+    d = datetime.fromtimestamp(ts, tz=tz)
+    return d.hour, d.minute
+
+def _next_weekday_set(days: str, hour: int, minute: int, tz: zoneinfo.ZoneInfo) -> float:
+    allowed = {0, 1, 2, 3, 4} if days == "mon-fri" else {5, 6}
+    now = datetime.now(tz=tz)
+    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= now:
+        candidate += timedelta(days=1)
+    while candidate.weekday() not in allowed:
+        candidate += timedelta(days=1)
+    return candidate.timestamp()
+
 def _parse_number(s: str) -> float | None:
     s = s.strip().lower()
     if s in WORD_NUMBERS:
@@ -929,8 +1017,36 @@ def _extract_en_message(text: str) -> str:
 _EN_BARE_HOUR = re.compile(r'\bat\s+(\d{1,2})\b(?!\s*(?:am|pm|:\d))', re.IGNORECASE)
 
 def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
-    result = {"type": None, "message": None, "interval_seconds": None, "next_fire": None, "error": None}
+    result = {
+        "type": None, "message": None, "interval_seconds": None, "next_fire": None,
+        "days_of_week": None, "at_time": None, "until": None, "error": None,
+    }
     lower = text.lower().strip()
+
+    until_ts = _parse_until(lower, tz)
+    if until_ts is not None and until_ts < time.time():
+        result["error"] = "The end date has already passed."
+        return result
+
+    days = _match_weekday_set(lower, WEEKDAY_SETS_EN)
+    if days:
+        base = datetime.now(tz=tz).replace(second=0, microsecond=0)
+        ts = _resolve_en_time(base, lower)
+        if ts is None:
+            hour = _resolve_en_tod(lower)
+            hh, mm = (hour, 0) if hour is not None else (9, 0)
+        else:
+            d = datetime.fromtimestamp(ts, tz=tz)
+            hh, mm = d.hour, d.minute
+        msg = re.sub(WEEKDAY_SETS_EN[days], "", text, flags=re.IGNORECASE)
+        msg = re.sub(_UNTIL_EN, "", msg, flags=re.IGNORECASE)
+        result["type"] = "recurring"
+        result["days_of_week"] = days
+        result["at_time"] = f"{hh:02d}:{mm:02d}"
+        result["next_fire"] = _next_weekday_set(days, hh, mm, tz)
+        result["until"] = until_ts
+        result["message"] = _extract_en_message(msg) or "reminder"
+        return result
 
     m_bad_h = re.search(r"\bat\s+(\d{1,3})(?::\d{2})?\b", lower)
     if m_bad_h and int(m_bad_h.group(1)) > 23:
@@ -985,10 +1101,11 @@ def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
             first_fire = ts
         else:
             first_fire = _parse_en_absolute(text, tz)
-        msg = _extract_en_message(text)
+        msg = _extract_en_message(re.sub(_UNTIL_EN, "", text, flags=re.IGNORECASE))
         result["type"] = "recurring"
         result["interval_seconds"] = interval
         result["next_fire"] = first_fire
+        result["until"] = until_ts
         result["message"] = msg
         return result
 
@@ -1044,8 +1161,30 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         "message": None,
         "interval_seconds": None,
         "next_fire": None,
+        "days_of_week": None,
+        "at_time": None,
+        "until": None,
         "error": None,
     }
+
+    until_ts = _parse_until(lower, tz)
+    if until_ts is not None and until_ts < time.time():
+        result["error"] = "Дата окончания уже прошла."
+        return result
+
+    days = _match_weekday_set(lower, WEEKDAY_SETS_RU)
+    if days:
+        hh, mm = _time_for_weekday_set(lower, tz)
+        msg = re.sub(WEEKDAY_SETS_RU[days], "", _normalize(text_clean), flags=re.IGNORECASE)
+        msg = re.sub(_UNTIL_RU, "", msg, flags=re.IGNORECASE)
+        msg = re.sub(_TIME_STRIP, "", msg, flags=re.IGNORECASE)
+        result["type"] = "recurring"
+        result["days_of_week"] = days
+        result["at_time"] = f"{hh:02d}:{mm:02d}"
+        result["next_fire"] = _next_weekday_set(days, hh, mm, tz)
+        result["until"] = until_ts
+        result["message"] = _extract_message(msg) or "напоминание"
+        return result
 
     is_recurring = bool(re.search(
         r"напоминай|\bставь напоминание|добавь напоминание|хочу чтобы ты напоминал|"
@@ -1092,9 +1231,11 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         _cm = re.search(r'\bо\s+том,?\s+что\b|\bпро\s+то,?\s+что\b', msg, re.IGNORECASE)
         if _cm:
             msg = msg[_cm.end():].strip()
+        msg = re.sub(_UNTIL_RU, "", msg, flags=re.IGNORECASE).strip()
         result["type"] = "recurring"
         result["interval_seconds"] = interval
         result["next_fire"] = first_fire
+        result["until"] = until_ts
         result["message"] = msg or "напоминание"
         return result
 
