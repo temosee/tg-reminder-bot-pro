@@ -9,11 +9,13 @@ os.environ.setdefault("DATABASE_URL", "postgresql://dummy")
 
 import psycopg2
 import db
+import middleware
 
 
 class FakeCursor:
     def __init__(self, conn):
         self.conn = conn
+        self.rowcount = 0
 
     def __enter__(self):
         return self
@@ -25,14 +27,25 @@ class FakeCursor:
         if self.conn.dead:
             raise psycopg2.OperationalError("server closed the connection unexpectedly")
         self.conn.queries.append(sql)
+        self.conn.params.append(params)
+        self.rowcount = 1 if self.conn.rows else 0
+
+    def fetchone(self):
+        return self.conn.rows.pop(0) if self.conn.rows else None
+
+    def fetchall(self):
+        rows, self.conn.rows = self.conn.rows, []
+        return rows
 
 
 class FakeConn:
-    def __init__(self, name, dead=False):
+    def __init__(self, name, dead=False, rows=None):
         self.name = name
         self.dead = dead
         self.closed = 0
         self.queries = []
+        self.params = []
+        self.rows = list(rows or [])
         self.rollbacks = 0
         self.commits = 0
 
@@ -121,7 +134,7 @@ def case_rollback_after_failure():
     use_pool(pool)
     before = live.rollbacks
     try:
-        with db.get_conn() as conn:
+        with db.get_conn():
             raise RuntimeError("сбой запроса")
     except RuntimeError:
         pass
@@ -162,6 +175,40 @@ def case_pool_exhausted_by_dead_conns():
     return []
 
 
+def case_daily_slot_granted():
+    live = FakeConn("live", rows=[(3,)])
+    use_pool(FakePool([live]))
+    errors = []
+    if not db.take_daily_slot(1, 20):
+        errors.append("слот не выдан, хотя лимит не исчерпан")
+    if live.commits == 0:
+        errors.append("изменение не зафиксировано в базе")
+    return errors
+
+def case_daily_slot_exhausted():
+    # при исчерпанном лимите UPDATE не срабатывает и RETURNING ничего не отдаёт
+    live = FakeConn("live", rows=[])
+    use_pool(FakePool([live]))
+    if db.take_daily_slot(1, 20):
+        return ["слот выдан сверх дневного лимита"]
+    return []
+
+def case_daily_limit_blocks_user():
+    live = FakeConn("live", rows=[(50,)])  # get_active_reminders_count
+    use_pool(FakePool([live, FakeConn("live2", rows=[])]))
+    allowed, err = middleware.check_new_reminder(1, "ru")
+    if allowed:
+        return ["пользователь пропущен при исчерпанном лимите активных"]
+    if not err:
+        return ["не вернулось сообщение об ошибке"]
+    return []
+
+def case_limit_survives_restart():
+    # счётчик живёт в базе, а не в памяти процесса — перезапуск его не сбрасывает
+    if hasattr(middleware, "_daily_counter"):
+        return ["дневной счётчик всё ещё хранится в памяти процесса"]
+    return []
+
 cases = [
     ("живое соединение отдаётся как есть", case_alive_connection_used),
     ("мёртвые соединения выбрасываются", case_dead_connections_discarded),
@@ -169,6 +216,10 @@ cases = [
     ("rollback после ошибки запроса", case_rollback_after_failure),
     ("оборванное соединение не переиспользуется", case_broken_connection_not_reused),
     ("весь пул мёртв — берём новое", case_pool_exhausted_by_dead_conns),
+    ("дневной слот выдаётся в пределах лимита", case_daily_slot_granted),
+    ("дневной слот не выдаётся сверх лимита", case_daily_slot_exhausted),
+    ("лимит активных напоминаний блокирует", case_daily_limit_blocks_user),
+    ("дневной счётчик переехал из памяти в базу", case_limit_survives_restart),
 ]
 
 ok = fail = 0

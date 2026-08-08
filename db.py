@@ -1,5 +1,4 @@
 import time
-import os
 import threading
 import psycopg2
 import psycopg2.extras
@@ -25,15 +24,23 @@ def _get_pool():
                 )
     return _pool
 
+_checked = {}
+_CHECK_AFTER = 20
+
 def _alive(conn) -> bool:
     if conn.closed:
         return False
+    # только что работали через это соединение — лишний рейс до сервера ни к чему
+    if time.time() - _checked.get(id(conn), 0) < _CHECK_AFTER:
+        return True
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
         conn.rollback()
+        _checked[id(conn)] = time.time()
         return True
     except psycopg2.Error:
+        _checked.pop(id(conn), None)
         return False
 
 @contextmanager
@@ -46,6 +53,7 @@ def get_conn():
         if _alive(candidate):
             conn = candidate
             break
+        _checked.pop(id(candidate), None)
         pool.putconn(candidate, close=True)
     if conn is None:
         conn = pool.getconn()
@@ -55,8 +63,11 @@ def get_conn():
         try:
             if not conn.closed:
                 conn.rollback()
+                _checked[id(conn)] = time.time()
+            else:
+                _checked.pop(id(conn), None)
         except psycopg2.Error:
-            pass
+            _checked.pop(id(conn), None)
         pool.putconn(conn, close=bool(conn.closed))
 
 def init_db():
@@ -87,6 +98,14 @@ def init_db():
                 )
             """)
             cur.execute("""
+                CREATE TABLE IF NOT EXISTS usage_daily (
+                    user_id   BIGINT NOT NULL,
+                    day       DATE NOT NULL,
+                    reminders INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (user_id, day)
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS notes (
                     id         SERIAL PRIMARY KEY,
                     user_id    BIGINT NOT NULL,
@@ -102,6 +121,9 @@ def init_db():
                     ALTER COLUMN next_fire TYPE DOUBLE PRECISION,
                     ALTER COLUMN created_at TYPE DOUBLE PRECISION
             """)
+            cur.execute("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS days_of_week TEXT")
+            cur.execute("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS at_time TEXT")
+            cur.execute("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS until DOUBLE PRECISION")
         conn.commit()
 
 def _row_to_dict(cursor, row):
@@ -119,16 +141,15 @@ def _rows_to_dicts(cursor, rows):
 def register_user(user_id: int, username: str, first_name: str) -> bool:
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
-            if cur.fetchone():
-                return False
             cur.execute(
                 """INSERT INTO users (user_id, username, first_name, registered_at)
-                   VALUES (%s, %s, %s, %s)""",
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (user_id) DO NOTHING""",
                 (user_id, username, first_name, time.time())
             )
+            created = cur.rowcount > 0
         conn.commit()
-        return True
+        return created
 
 def get_user(user_id: int):
     with get_conn() as conn:
@@ -182,15 +203,18 @@ def increment_reminders_created(user_id: int):
 # reminders
 
 def add_reminder(user_id, chat_id, message, type_,
-                 interval_seconds=None, next_fire=None):
+                 interval_seconds=None, next_fire=None,
+                 days_of_week=None, at_time=None, until=None):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO reminders
-                   (user_id, chat_id, message, type, interval_seconds, next_fire, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                   (user_id, chat_id, message, type, interval_seconds, next_fire, created_at,
+                    days_of_week, at_time, until)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                 (user_id, chat_id, message, type_,
-                 interval_seconds, next_fire, time.time())
+                 interval_seconds, next_fire, time.time(),
+                 days_of_week, at_time, until)
             )
             new_id = cur.fetchone()[0]
         conn.commit()
@@ -204,6 +228,15 @@ def get_reminders(user_id):
                 (user_id,)
             )
             return _rows_to_dicts(cur, cur.fetchall())
+
+def get_reminder(reminder_id: int, user_id: int):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM reminders WHERE id = %s AND user_id = %s",
+                (reminder_id, user_id)
+            )
+            return _row_to_dict(cur, cur.fetchone())
 
 def get_all_reminders():
     with get_conn() as conn:
@@ -242,12 +275,43 @@ def delete_reminder_by_id(reminder_id):
             cur.execute("DELETE FROM reminders WHERE id = %s", (reminder_id,))
         conn.commit()
 
+def delete_expired_reminders():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM reminders WHERE until IS NOT NULL AND until < %s", (time.time(),))
+        conn.commit()
+
 def update_next_fire(reminder_id, next_fire):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE reminders SET next_fire = %s WHERE id = %s",
                 (next_fire, reminder_id)
+            )
+        conn.commit()
+
+def take_daily_slot(user_id: int, limit: int) -> bool:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO usage_daily (user_id, day, reminders)
+                   VALUES (%s, CURRENT_DATE, 1)
+                   ON CONFLICT (user_id, day) DO UPDATE
+                       SET reminders = usage_daily.reminders + 1
+                     WHERE usage_daily.reminders < %s
+                   RETURNING reminders""",
+                (user_id, limit)
+            )
+            taken = cur.fetchone() is not None
+        conn.commit()
+        return taken
+
+def purge_old_usage(days: int = 7):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM usage_daily WHERE day < CURRENT_DATE - %s::integer",
+                (days,)
             )
         conn.commit()
 
