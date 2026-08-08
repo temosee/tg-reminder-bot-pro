@@ -431,6 +431,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # удаление из карточки только что созданного — список тут ни к чему
+    if query.data.startswith("delx_"):
+        rid = int(query.data[5:])
+        target = await _run(db.get_reminder, rid, query.from_user.id)
+        if not target:
+            await query.edit_message_text(t(lang, 'already_deleted'))
+            return
+        sched.remove_job(rid, target["type"])
+        await _run(db.delete_reminder, rid, query.from_user.id)
+        await query.edit_message_text(t(lang, 'deleted', msg=target['message']))
+        return
+
     if query.data == "back_list":
         reminders = await _run(db.get_reminders, query.from_user.id)
         if not reminders:
@@ -499,7 +511,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text, keyboard = build_reminders_message(remaining, user_id, lang, user_row["timezone"] if user_row else None)
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         else:
-            await query.edit_message_text(t(lang, 'all_deleted', count=0).split("(")[0].strip())
+            await query.edit_message_text(t(lang, 'deleted', msg=target['message']))
     else:
         await query.edit_message_text(t(lang, 'already_deleted'))
 
@@ -832,7 +844,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             row.append(InlineKeyboardButton(t(lang, 'btn_move_n', n="").strip() + suffix,
                                             callback_data=f"move_{rid}"))
         row.append(InlineKeyboardButton(t(lang, 'btn_delete_n', n="").strip() + suffix,
-                                        callback_data=f"del_{rid}"))
+                                        callback_data=f"delx_{rid}"))
         rows.append(row)
     await update.message.reply_text("\n".join(reply_lines) + " ✅" + tz_warning,
                                     reply_markup=InlineKeyboardMarkup(rows))
