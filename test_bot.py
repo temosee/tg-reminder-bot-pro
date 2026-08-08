@@ -42,6 +42,30 @@ def case_notes_escaped():
     return errors
 
 
+def case_interval_wording():
+    checks = {
+        86400: "каждый день",
+        3 * 86400: "каждые 3 дня",
+        3600: "каждый час",
+        2 * 3600: "каждые 2 часа",
+        5 * 3600: "каждые 5 часов",
+        60: "каждую минуту",
+        30 * 60: "каждые 30 минут",
+        604800: "каждую неделю",
+        2 * 604800: "каждые 2 недели",
+    }
+    errors = []
+    for seconds, want in checks.items():
+        got = bot.format_interval(seconds, "ru")
+        if got != want:
+            errors.append(f"{seconds}s: want={want!r} got={got!r}")
+    for seconds, want in {86400: "every day", 2 * 86400: "every 2 days", 3600: "every hour"}.items():
+        got = bot.format_interval(seconds, "en")
+        if got != want:
+            errors.append(f"{seconds}s (en): want={want!r} got={got!r}")
+    return errors
+
+
 def case_once_row_movable():
     r = {"id": 7, "type": "once", "message": "вынести мусор",
          "next_fire": time.time() + 3600, "interval_seconds": None}
@@ -161,6 +185,7 @@ def case_grace_time_is_generous():
 
 cases = [
     ("заметки экранируются", case_notes_escaped),
+    ("интервалы читаются по-русски", case_interval_wording),
     ("разовое напоминание можно перенести", case_once_row_movable),
     ("напоминание по дням недели переносить нельзя", case_weekday_row_not_movable),
     ("меню переноса со всеми вариантами", case_move_menu_offsets),

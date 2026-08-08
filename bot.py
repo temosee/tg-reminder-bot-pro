@@ -50,19 +50,43 @@ def get_keyboard(lang: str):
         input_field_placeholder=t(lang, 'placeholder'),
     )
 
+def _plural_ru(n: int, one: str, few: str, many: str) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return few
+    return many
+
+_UNITS_RU = {
+    'sec':  ("каждую секунду", ("секунду", "секунды", "секунд")),
+    'min':  ("каждую минуту",  ("минуту", "минуты", "минут")),
+    'hour': ("каждый час",     ("час", "часа", "часов")),
+    'day':  ("каждый день",    ("день", "дня", "дней")),
+    'week': ("каждую неделю",  ("неделю", "недели", "недель")),
+}
+_UNITS_EN = {
+    'sec': "second", 'min': "minute", 'hour': "hour", 'day': "day", 'week': "week",
+}
+
+def _every(n: int, unit: str, lang: str) -> str:
+    if lang == 'en':
+        word = _UNITS_EN[unit]
+        return f"every {word}" if n == 1 else f"every {n} {word}s"
+    single, forms = _UNITS_RU[unit]
+    if n == 1:
+        return single
+    return f"каждые {n} {_plural_ru(n, *forms)}"
+
 def format_interval(seconds: int, lang: str = 'ru') -> str:
-    if seconds < 60:
-        return t(lang, 'interval_sec', n=seconds)
-    if seconds < 3600:
-        return t(lang, 'interval_min', n=seconds // 60)
-    if seconds >= 86400 and seconds % 86400 == 0:
-        d = seconds // 86400
-        if lang == 'ru':
-            word = 'день' if d == 1 else ('дня' if d in (2, 3, 4) else 'дней')
-            return f"{d} {word}"
-        return f"{d} {'day' if d == 1 else 'days'}"
-    h = seconds / 3600
-    return t(lang, 'interval_h', n=int(h) if h == int(h) else f"{h:.1f}")
+    if seconds % 604800 == 0:
+        return _every(seconds // 604800, 'week', lang)
+    if seconds % 86400 == 0:
+        return _every(seconds // 86400, 'day', lang)
+    if seconds % 3600 == 0:
+        return _every(seconds // 3600, 'hour', lang)
+    if seconds % 60 == 0:
+        return _every(seconds // 60, 'min', lang)
+    return _every(seconds, 'sec', lang)
 
 INTENT_NOTES_LIST = [
     "мои заметки", "покажи заметки", "все заметки", "заметки",
