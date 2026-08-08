@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import html
 import logging
 import re
 import time as _time
@@ -156,16 +157,30 @@ INTENT_LANG_CHANGE = re.compile(
     re.IGNORECASE
 )
 
-def _get_user_tz(user_id: int) -> zoneinfo.ZoneInfo:
-    user = db.get_user(user_id)
-    tz_name = user["timezone"] if user else "UTC"
+def _looks_like_reminder(text: str) -> bool:
+    if not text:
+        return False
     try:
-        return zoneinfo.ZoneInfo(tz_name)
+        parsed = reminder_parser.parse(text)
+    except Exception:
+        return False
+    if parsed.get("error"):
+        return False
+    return bool(parsed.get("next_fire") or parsed.get("interval_seconds"))
+
+def _tz(tz_name: str) -> zoneinfo.ZoneInfo:
+    try:
+        return zoneinfo.ZoneInfo(tz_name or "UTC")
     except Exception:
         return zoneinfo.ZoneInfo("UTC")
 
-def _local_dt(ts: float, user_id: int) -> datetime:
-    return datetime.fromtimestamp(ts, tz=_get_user_tz(user_id))
+def _get_user_tz(user_id: int) -> zoneinfo.ZoneInfo:
+    user = db.get_user(user_id)
+    return _tz(user["timezone"] if user else "UTC")
+
+def _local_dt(ts: float, user_id: int, tz_name: str = None) -> datetime:
+    tz = _tz(tz_name) if tz_name else _get_user_tz(user_id)
+    return datetime.fromtimestamp(ts, tz=tz)
 
 def _fmt_time(dt: datetime, lang: str) -> str:
     if lang == 'en':
@@ -177,25 +192,68 @@ def _fmt_datetime(dt: datetime, lang: str) -> str:
         return dt.strftime('%I:%M %p %d.%m').lstrip('0')
     return dt.strftime('%H:%M %d.%m')
 
-def build_reminders_message(reminders, user_id: int, lang: str):
+def build_reminders_message(reminders, user_id: int, lang: str, tz_name: str = None):
+    if tz_name is None:
+        tz_name = str(_get_user_tz(user_id))
     buttons = []
     for r in reminders:
-        if r["type"] == "recurring":
+        if r.get("days_of_week"):
+            days_str = t(lang, 'days_weekdays' if r["days_of_week"] == "mon-fri" else 'days_weekend')
+            label = t(lang, 'label_days', days=days_str, time=r.get("at_time") or "09:00", msg=r['message'])
+        elif r["type"] == "recurring":
             interval_str = format_interval(r["interval_seconds"], lang)
             if r.get("next_fire") and r["interval_seconds"] >= 86400:
-                dt = _local_dt(r["next_fire"], user_id)
+                dt = _local_dt(r["next_fire"], user_id, tz_name)
                 label = t(lang, 'label_recurring_at', interval=interval_str, time=_fmt_time(dt, lang), msg=r['message'])
             else:
                 label = t(lang, 'label_recurring', interval=interval_str, msg=r['message'])
         else:
-            dt = _local_dt(r["next_fire"], user_id)
+            dt = _local_dt(r["next_fire"], user_id, tz_name)
             label = t(lang, 'label_once', time=_fmt_datetime(dt, lang), msg=r['message'])
-        delete_word = "Удалить" if lang == "ru" else "Delete"
+        # у напоминаний по дням недели переносить нечего — только удалить
+        movable = not r.get("days_of_week")
         buttons.append([
-            InlineKeyboardButton(f"🗑 {delete_word} — {label[:40]}", callback_data=f"del_{r['id']}")
+            InlineKeyboardButton(f"{'⏩ ' if movable else ''}{label[:36]}",
+                                 callback_data=f"move_{r['id']}" if movable else "noop"),
+            InlineKeyboardButton("🗑", callback_data=f"del_{r['id']}"),
         ])
     buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
-    return t(lang, 'reminders_header'), InlineKeyboardMarkup(buttons)
+    header = t(lang, 'reminders_header') + "\n" + t(lang, 'reminders_hint')
+    return header, InlineKeyboardMarkup(buttons)
+
+MOVE_OPTIONS = [
+    ('snooze_15m', 15), ('snooze_30m', 30),
+    ('snooze_1h', 60), ('snooze_3h', 180),
+    ('snooze_6h', 360), ('snooze_tomorrow', 1440),
+]
+
+def recover_snooze_info(message):
+    # после рестарта список в памяти пуст, но текст напоминания есть в самом сообщении
+    shown = (getattr(message, "text", None) or "").strip()
+    if shown.startswith("⏰"):
+        shown = shown[1:].strip()
+    if not shown:
+        return None
+    return {"message": shown, "chat_id": message.chat_id}
+
+def build_move_menu(reminder_id: int, lang: str):
+    rows = []
+    for i in range(0, len(MOVE_OPTIONS), 2):
+        rows.append([
+            InlineKeyboardButton(t(lang, key), callback_data=f"mv_{reminder_id}_{mins}")
+            for key, mins in MOVE_OPTIONS[i:i + 2]
+        ])
+    rows.append([InlineKeyboardButton(t(lang, 'btn_back'), callback_data="back_list")])
+    return InlineKeyboardMarkup(rows)
+
+def build_notes_message(notes, lang: str):
+    lines = [t(lang, 'notes_header')]
+    buttons = []
+    for n in notes:
+        lines.append(f"• {html.escape(n['text'])}")
+        buttons.append([InlineKeyboardButton(f"🗑 {n['text'][:40]}", callback_data=f"delnote_{n['id']}")])
+    buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
+    return "\n".join(lines), InlineKeyboardMarkup(buttons)
 
 async def show_notes(update: Update, user_id: int, lang: str):
     notes = db.get_notes(user_id)
@@ -203,16 +261,8 @@ async def show_notes(update: Update, user_id: int, lang: str):
     if not notes:
         await update.message.reply_text(t(lang, 'no_notes'), reply_markup=kb)
         return
-    lines = [t(lang, 'notes_header')]
-    buttons = []
-    for n in notes:
-        lines.append(f"• {n['text']}")
-        buttons.append([InlineKeyboardButton(f"🗑 {n['text'][:40]}", callback_data=f"delnote_{n['id']}")])
-    buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
-    await update.message.reply_text(
-        "\n".join(lines), parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    text, keyboard = build_notes_message(notes, lang)
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -260,12 +310,12 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await cmd_start(update, context)
 
-async def show_reminders(update: Update, user_id: int, lang: str):
-    reminders = db.get_reminders(user_id)
+async def show_reminders(update: Update, user_id: int, lang: str, tz_name: str = None):
+    reminders = await _run(db.get_reminders, user_id)
     if not reminders:
         await update.message.reply_text(t(lang, 'no_reminders'), reply_markup=get_keyboard(lang))
         return
-    text, keyboard = build_reminders_message(reminders, user_id, lang)
+    text, keyboard = build_reminders_message(reminders, user_id, lang, tz_name)
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -304,14 +354,66 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # confirm delete all
     if query.data == "delall_yes":
-        reminders = await _run(db.get_reminders, user.id)
+        reminders = await _run(db.get_reminders, query.from_user.id)
         for r in reminders:
             sched.remove_job(r["id"], r["type"])
-            await _run(db.delete_reminder, r["id"], user.id)
+            await _run(db.delete_reminder, r["id"], query.from_user.id)
         await query.edit_message_text(t(lang, 'all_deleted', count=len(reminders)))
         return
     if query.data == "delall_no":
         await query.edit_message_text(t(lang, 'delete_cancelled'))
+        return
+
+    tz_name = user_row["timezone"] if user_row else None
+
+    # move existing reminder
+    if query.data.startswith("move_"):
+        rid = int(query.data[5:])
+        target = await _run(db.get_reminder, rid, query.from_user.id)
+        if not target:
+            await query.edit_message_text(t(lang, 'already_deleted'))
+            return
+        await query.edit_message_text(
+            t(lang, 'move_prompt', msg=target["message"]),
+            reply_markup=build_move_menu(rid, lang),
+        )
+        return
+
+    if query.data.startswith("mv_"):
+        _, rid_str, mins_str = query.data.split("_")
+        rid, minutes = int(rid_str), int(mins_str)
+        target = await _run(db.get_reminder, rid, query.from_user.id)
+        if not target:
+            await query.edit_message_text(t(lang, 'already_deleted'))
+            return
+        if target.get("days_of_week"):
+            await query.edit_message_text(t(lang, 'move_unsupported'))
+            return
+        new_fire = _time.time() + minutes * 60
+        await _run(db.update_next_fire, rid, new_fire)
+        sched.remove_job(rid, target["type"])
+        if target["type"] == "recurring":
+            sched.add_recurring_job(
+                context.bot, rid, target["chat_id"], target["message"],
+                target["interval_seconds"],
+                start_date=datetime.fromtimestamp(new_fire, tz=timezone.utc),
+                until=target.get("until"),
+            )
+        else:
+            sched.add_once_job(context.bot, rid, target["chat_id"], target["message"], new_fire)
+        dt = _local_dt(new_fire, query.from_user.id, tz_name)
+        await query.edit_message_text(
+            t(lang, 'moved', msg=target['message'], time=_fmt_datetime(dt, lang))
+        )
+        return
+
+    if query.data == "back_list":
+        reminders = await _run(db.get_reminders, query.from_user.id)
+        if not reminders:
+            await query.edit_message_text(t(lang, 'no_reminders'))
+            return
+        text, keyboard = build_reminders_message(reminders, query.from_user.id, lang, tz_name)
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         return
 
     # snooze
@@ -319,7 +421,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, rid_str, mins_str = query.data.split("_")
         reminder_id = int(rid_str)
         minutes = int(mins_str)
-        info = sched.PENDING_SNOOZE.get(reminder_id)
+        info = sched.PENDING_SNOOZE.get(reminder_id) or recover_snooze_info(query.message)
         if info:
             new_fire = _time.time() + minutes * 60
             new_id = db.add_reminder(
@@ -331,7 +433,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             sched.add_once_job(context.bot, new_id, info["chat_id"], info["message"], new_fire)
             sched.PENDING_SNOOZE.pop(reminder_id, None)
-            dt = _local_dt(new_fire, query.from_user.id)
+            dt = _local_dt(new_fire, query.from_user.id, user_row["timezone"] if user_row else None)
             await query.edit_message_text(t(lang, 'snoozed', msg=info['message'], time=_fmt_time(dt, lang)))
         else:
             await query.edit_message_reply_markup(reply_markup=None)
@@ -349,13 +451,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.delete_note(note_id, query.from_user.id)
         notes = db.get_notes(query.from_user.id)
         if notes:
-            lines = [t(lang, 'notes_header')]
-            buttons = []
-            for n in notes:
-                lines.append(f"• {n['text']}")
-                buttons.append([InlineKeyboardButton(f"🗑 {n['text'][:40]}", callback_data=f"delnote_{n['id']}")])
-            buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
-            await query.edit_message_text("\n".join(lines), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+            text, keyboard = build_notes_message(notes, lang)
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         else:
             await query.edit_message_text(t(lang, 'notes_all_deleted'))
         return
@@ -375,7 +472,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.delete_reminder(rid, user_id)
         remaining = db.get_reminders(user_id)
         if remaining:
-            text, keyboard = build_reminders_message(remaining, user_id, lang)
+            text, keyboard = build_reminders_message(remaining, user_id, lang, user_row["timezone"] if user_row else None)
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         else:
             await query.edit_message_text(t(lang, 'all_deleted', count=0).split("(")[0].strip())
@@ -395,21 +492,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
     # waiting for city
     if context.user_data.get("awaiting_city"):
-        city_input = (update.message.text or "").strip()
-        await update.message.reply_text(t(lang, 'city_searching'))
-        tz, display = await _run(city_tz.city_to_timezone, city_input)
-        if tz:
-            await _run(db.update_timezone, user.id, tz)
+        city_input = (_text if _text is not None else update.message.text or "").strip()
+        if _looks_like_reminder(city_input):
+            # прислали напоминание вместо города — не держим человека в этом шаге
             context.user_data.pop("awaiting_city", None)
-            await update.message.reply_text(t(lang, 'city_set', display=display), reply_markup=kb)
-            await _send_welcome(update, lang)
         else:
-            await update.message.reply_text(t(lang, 'city_not_found', city=city_input))
-        return
+            await update.message.reply_text(t(lang, 'city_searching'))
+            tz, display = await _run(city_tz.city_to_timezone, city_input)
+            if tz:
+                await _run(db.update_timezone, user.id, tz)
+                context.user_data.pop("awaiting_city", None)
+                user_row = await _run(db.get_user, user.id)
+                await update.message.reply_text(t(lang, 'city_set', display=display), reply_markup=kb)
+                await _send_welcome(update, lang)
+            else:
+                await update.message.reply_text(t(lang, 'city_not_found', city=city_input))
+            return
 
     # flood check
     if _text is None:
-        allowed, reason = middleware.check_message(user.id)
+        allowed, reason = middleware.check_message(user.id, user_row)
         if not allowed:
             if reason == "flood":
                 await update.message.reply_text(t(lang, 'flood'), reply_markup=kb)
@@ -545,7 +647,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
     # list reminders
     if any(kw in lower for kw in INTENT_LIST):
-        await show_reminders(update, user.id, lang)
+        await show_reminders(update, user.id, lang, user_row["timezone"] if user_row else None)
         return
 
     # delete by number
@@ -653,31 +755,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         reminder_id = await _run(db.add_reminder,
             user.id, update.effective_chat.id, parsed["message"],
             parsed["type"], parsed.get("interval_seconds"), parsed.get("next_fire"),
+            parsed.get("days_of_week"), parsed.get("at_time"), parsed.get("until"),
         )
         await _run(db.increment_reminders_created, user.id)
         created_ids.append(reminder_id)
+        until_str = ""
+        if parsed.get("until"):
+            until_dt = _local_dt(parsed["until"], user.id, user_tz)
+            until_str = t(reply_lang, 'until_suffix', date=until_dt.strftime('%d.%m'))
 
-        if parsed["type"] == "recurring":
+        if parsed.get("days_of_week"):
+            sched.add_cron_job(bot, reminder_id, update.effective_chat.id, parsed["message"],
+                               parsed["days_of_week"], parsed["at_time"], user_tz, parsed.get("until"))
+            days_str = t(reply_lang, 'days_weekdays' if parsed["days_of_week"] == "mon-fri" else 'days_weekend')
+            reply_lines.append(
+                t(reply_lang, 'confirm_days', days=days_str, time=parsed["at_time"], msg=parsed['message']) + until_str
+            )
+
+        elif parsed["type"] == "recurring":
             start_date = None
             if parsed.get("next_fire"):
                 start_date = datetime.fromtimestamp(parsed["next_fire"], tz=timezone.utc)
-            sched.add_recurring_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["interval_seconds"], start_date=start_date)
+            sched.add_recurring_job(bot, reminder_id, update.effective_chat.id, parsed["message"],
+                                    parsed["interval_seconds"], start_date=start_date,
+                                    until=parsed.get("until"))
             interval_str = format_interval(parsed["interval_seconds"], reply_lang)
             if start_date:
-                dt = _local_dt(parsed["next_fire"], user.id)
-                reply_lines.append(t(reply_lang, 'confirm_recurring_from', interval=interval_str, time=_fmt_time(dt, reply_lang), msg=parsed['message']))
+                dt = _local_dt(parsed["next_fire"], user.id, user_tz)
+                reply_lines.append(t(reply_lang, 'confirm_recurring_from', interval=interval_str, time=_fmt_time(dt, reply_lang), msg=parsed['message']) + until_str)
             else:
-                reply_lines.append(t(reply_lang, 'confirm_recurring', interval=interval_str, msg=parsed['message']))
+                reply_lines.append(t(reply_lang, 'confirm_recurring', interval=interval_str, msg=parsed['message']) + until_str)
 
         elif parsed["type"] == "once":
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
-            dt = _local_dt(parsed["next_fire"], user.id)
+            dt = _local_dt(parsed["next_fire"], user.id, user_tz)
             reply_lines.append(t(reply_lang, 'confirm_once', time=_fmt_datetime(dt, reply_lang), msg=parsed['message']))
 
     tz_warning = ""
     if user_row and user_row.get("timezone", "UTC") == "UTC":
-        tz_warning = "\n\n⚠️ Город не задан — время показано в UTC. Напиши /timezone чтобы указать свой город." if lang == "ru" \
-               else "\n\n⚠️ City not set — time shown in UTC. Type /timezone to set your city."
+        tz_warning = "\n\n" + t(lang, 'tz_missing')
+        context.user_data["awaiting_city"] = True
 
     del_label = "Удалить" if lang == "ru" else "Delete"
     confirm_inline = InlineKeyboardMarkup([
@@ -760,6 +877,7 @@ def main():
 
     async def on_startup(app):
         sched.restore_jobs(app.bot)
+        sched.add_maintenance_job()
         sched.scheduler.start()
         logger.info("Бот запущен, напоминания восстановлены.")
 
