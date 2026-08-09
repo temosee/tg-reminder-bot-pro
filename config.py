@@ -4,7 +4,18 @@ TOKEN = os.environ["BOT_TOKEN"]
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+def _parse_ids(raw: str) -> set[int]:
+    ids = set()
+    for part in raw.replace(";", ",").split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.add(int(part))
+    ids.discard(0)
+    return ids
+
+# несколько админов через запятую: ADMIN_ID=834815805,123456789
+ADMIN_IDS = _parse_ids(os.environ.get("ADMIN_ID", ""))
+ADMIN_ID = min(ADMIN_IDS) if ADMIN_IDS else 0
 
 TIMEZONE = os.environ.get("DEFAULT_TIMEZONE", "Europe/Moscow")
 
