@@ -590,7 +590,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
                 InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
                 InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
             ],
-            [InlineKeyboardButton("🌍 " + ("Сменить город/TZ" if lang == "ru" else "Change city/TZ"), callback_data="settings_tz")],
+            [InlineKeyboardButton("🌍 " + ("Сменить город" if lang == "ru" else "Change city"), callback_data="settings_tz")],
         ])
         await update.message.reply_text(t(lang, 'settings_title'), parse_mode="HTML", reply_markup=inline)
         return
