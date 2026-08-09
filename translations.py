@@ -1,6 +1,6 @@
 STRINGS = {
     'ru': {
-        'welcome_new':     "Привет, {name}! Я бот-напоминалка. Напиши свой город, чтобы напоминания приходили в точное время!",
+        'welcome_new':     "Привет, {name}! Я бот-напоминалка. Напиши свой город, чтобы напоминания приходили в точное время.\n\nМожно кратко: мск, спб, екб, владик.",
         'welcome_back':    "Привет, {name}! Чем могу помочь?",
         'welcome_features':(
             "Вот что я умею:\n\n"
@@ -9,7 +9,7 @@ STRINGS = {
             "🗒 Заметки: запомни: друг должен мне 3000₽ — сохраняю без времени\n\n"
             "Пиши как удобно — любые напоминания в любом формате."
         ),
-        'awaiting_city':   "Напиши свой город:",
+        'awaiting_city':   "Напиши свой город.\n\nМожно кратко: мск, спб, екб, владик.",
         'city_searching':  "Ищу город...",
         'city_set':        "✅ Город: {display}\nВремя будет по этому городу.",
         'city_not_found':  "Не смог найти «{city}». Попробуй написать иначе — например: Москва, Питер, Новосибирск",
@@ -64,7 +64,7 @@ STRINGS = {
         'btn_notes':       "🗒 Заметки",
         'btn_settings':    "⚙️ Настройки",
         'settings_title':  "⚙️ <b>Настройки</b>",
-        'settings_tz_prompt': "Напиши название города для смены часового пояса:",
+        'settings_tz_prompt': "Напиши город для смены часового пояса.\n\nМожно кратко: мск, спб, екб, владик.",
         'placeholder':     "Напиши что и когда напомнить...",
         'limit_active':    "Превышен лимит активных напоминаний ({n}).",
         'limit_daily':     "Лимит напоминаний на сегодня исчерпан ({n}/день).",
@@ -83,7 +83,7 @@ STRINGS = {
         'delete_cancelled': "Отмена.",
     },
     'en': {
-        'welcome_new':     "Hey, {name}! I'm a reminder bot. Enter your city so reminders arrive on time!",
+        'welcome_new':     "Hey, {name}! I'm a reminder bot. Enter your city so reminders arrive on time.\n\nShort forms work: nyc, la, sf.",
         'welcome_back':    "Hey, {name}! How can I help?",
         'welcome_features':(
             "Here's what I can do:\n\n"
@@ -92,7 +92,7 @@ STRINGS = {
             "🗒 Notes: remember: friend owes me $50 — saved without a time, check whenever\n\n"
             "Write however you like — any format works."
         ),
-        'awaiting_city':   "Enter your city:",
+        'awaiting_city':   "Enter your city.\n\nShort forms work: nyc, la, sf.",
         'city_searching':  "Searching...",
         'city_set':        "✅ City: {display}\nReminders will use this city's timezone.",
         'city_not_found':  "Couldn't find «{city}». Try again — e.g.: Moscow, London, New York, Toronto",
@@ -147,7 +147,7 @@ STRINGS = {
         'btn_notes':       "🗒 Notes",
         'btn_settings':    "⚙️ Settings",
         'settings_title':  "⚙️ <b>Settings</b>",
-        'settings_tz_prompt': "Send your city name to change timezone:",
+        'settings_tz_prompt': "Send your city to change the timezone.\n\nShort forms work: nyc, la, sf.",
         'placeholder':     "Write what and when to remind...",
         'limit_active':    "Active reminders limit exceeded ({n}).",
         'limit_daily':     "Daily limit reached ({n}/day).",
