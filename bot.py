@@ -199,18 +199,26 @@ PAGE_SIZE = 8
 NOTES_PAGE_SIZE = 5   # заметка до 500 символов, больше пяти в одно сообщение не влезет
 TG_TEXT_LIMIT = 4096
 
+def tg_len(text: str) -> int:
+    """Телеграм считает длину в единицах UTF-16: эмодзи занимает две, а не одну."""
+    return len(text.encode("utf-16-le")) // 2
+
 def _fit(lines: list[str]) -> str:
     """Собирает сообщение так, чтобы телеграм его точно принял."""
     text = chr(10).join(lines)
-    if len(text) <= TG_TEXT_LIMIT - 96:
+    budget = TG_TEXT_LIMIT - 96
+    if tg_len(text) <= budget:
         return text
-    trimmed, budget = [], TG_TEXT_LIMIT - 96
+    trimmed = []
     for line in lines:
-        if len(line) > budget:
-            trimmed.append(line[:max(0, budget - 1)] + "…")
+        if tg_len(line) > budget:
+            cut = line
+            while cut and tg_len(cut) > max(0, budget - 1):
+                cut = cut[:-1]
+            trimmed.append(cut + "…")
             break
         trimmed.append(line)
-        budget -= len(line) + 1
+        budget -= tg_len(line) + 1
     return chr(10).join(trimmed)
 
 def _page_nav(page: int, total: int, prefix: str, size: int = PAGE_SIZE):

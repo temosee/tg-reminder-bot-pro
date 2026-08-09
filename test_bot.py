@@ -488,8 +488,100 @@ def case_year_shown_only_when_needed():
     return errors
 
 
+
+def case_emoji_length_counted_as_telegram_does():
+    # телеграм считает длину в единицах UTF-16, эмодзи занимает две
+    notes = [{"id": i, "text": "🎉" * 500} for i in range(1, 10)]
+    text, _ = bot.build_notes_message(notes)
+    units = len(text.encode("utf-16-le")) // 2
+    if units > 4096:
+        return [f"{units} единиц телеграма — сообщение будет отклонено"]
+    if bot.tg_len("🎉") != 2:
+        return ["эмодзи считается за один символ вместо двух"]
+    return []
+
+
+def case_callback_data_within_limit():
+    rows = [{"id": 999999999, "type": "once", "message": "дело",
+             "next_fire": time.time() + 600, "interval_seconds": None}]
+    _, markup = bot.build_reminders_message(rows, 1, MSK)
+    data = all_callbacks(markup) + all_callbacks(bot.build_move_menu(999999999))
+    too_long = [d for d in data if len(d.encode()) > 64]
+    return [f"callback длиннее 64 байт: {too_long}"] if too_long else []
+
+
+def case_startup_does_not_query_per_reminder():
+    import db as real_db
+    saved = (real_db.get_user, real_db.get_all_reminders,
+             real_db.delete_reminder_by_id, real_db.update_next_fire)
+    calls = {"n": 0}
+
+    def counted(uid):
+        calls["n"] += 1
+        return {"user_id": uid, "timezone": MSK, "is_banned": 0}
+
+    rows = [dict(id=i, user_id=1000 + (i % 10), chat_id=1000 + (i % 10), message="дело",
+                 type="recurring", interval_seconds=None, next_fire=None,
+                 days_of_week="mon-fri", at_time="09:00", until=None, wall_clock=True)
+            for i in range(1, 101)]
+    real_db.get_user = counted
+    real_db.get_all_reminders = lambda: rows
+    real_db.delete_reminder_by_id = lambda rid: None
+    real_db.update_next_fire = lambda rid, nf: None
+    try:
+        sched.restore_jobs(None)
+    finally:
+        (real_db.get_user, real_db.get_all_reminders,
+         real_db.delete_reminder_by_id, real_db.update_next_fire) = saved
+        for r in rows:
+            sched.remove_job(r["id"], "recurring")
+    if calls["n"] > 10:
+        return [f"{calls['n']} запросов к базе на 10 человек — нет кэша часовых поясов"]
+    return []
+
+
+def case_impossible_dates_rejected():
+    import parser as p
+    errors = []
+    for text in ("напомни 31.04 в 10:00 тест", "напомни 30 февраля в 10:00 тест",
+                 "напомни 32.01 тест"):
+        r = p.parse(text, user_tz=MSK)
+        if not r.get("error"):
+            errors.append(f"{text!r} принято, хотя такой даты нет")
+    r = p.parse("напомни 29 февраля поздравить", user_tz=MSK)
+    if not r.get("error") or "високос" not in (r.get("error") or ""):
+        errors.append("про 29 февраля нет внятного объяснения")
+    return errors
+
+
+def case_numeric_dates_understood():
+    import parser as p
+    from datetime import datetime as dt
+    errors = []
+    r = p.parse("напомни 15.09 в 10:00 отчёт", user_tz=MSK)
+    if r.get("error"):
+        errors.append(f"числовая дата не понята: {r['error']}")
+    else:
+        when = dt.fromtimestamp(r["next_fire"], ZoneInfo(MSK))
+        if (when.day, when.month, when.hour) != (15, 9, 10):
+            errors.append(f"дата разобрана неверно: {when}")
+        if "15.09" in r["message"]:
+            errors.append(f"дата осталась в тексте: {r['message']!r}")
+    r = p.parse("напомни в 15.09 поесть", user_tz=MSK)
+    if not r.get("error"):
+        when = dt.fromtimestamp(r["next_fire"], ZoneInfo(MSK))
+        if (when.hour, when.minute) != (15, 9):
+            errors.append(f"«в 15.09» должно быть временем, а стало {when}")
+    return errors
+
+
 cases = [
     ("заметки экранируются", case_notes_escaped),
+    ("эмодзи считаются как в телеграме", case_emoji_length_counted_as_telegram_does),
+    ("callback влезает в предел", case_callback_data_within_limit),
+    ("старт не дёргает базу на каждое напоминание", case_startup_does_not_query_per_reminder),
+    ("несуществующие даты отклоняются", case_impossible_dates_rejected),
+    ("числовые даты понимаются", case_numeric_dates_understood),
     ("длинный список влезает в телеграм", case_long_list_fits_telegram),
     ("длинные заметки влезают в телеграм", case_long_notes_fit_telegram),
     ("листание страниц", case_pagination_navigation),
