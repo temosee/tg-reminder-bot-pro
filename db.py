@@ -317,6 +317,50 @@ def purge_old_usage(days: int = 7):
             )
         conn.commit()
 
+def get_admin_overview() -> dict:
+    week_ago = time.time() - 7 * 86400
+    day_ago = time.time() - 86400
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT
+                    (SELECT COUNT(*) FROM users),
+                    (SELECT COUNT(*) FROM users WHERE is_banned = 1),
+                    (SELECT COUNT(*) FROM users WHERE registered_at > %s),
+                    (SELECT COUNT(*) FROM users WHERE registered_at > %s),
+                    (SELECT COUNT(*) FROM reminders),
+                    (SELECT COUNT(*) FROM reminders WHERE type = 'once'),
+                    (SELECT COUNT(*) FROM reminders WHERE type = 'recurring' AND days_of_week IS NULL),
+                    (SELECT COUNT(*) FROM reminders WHERE days_of_week IS NOT NULL),
+                    (SELECT COUNT(*) FROM notes),
+                    (SELECT COALESCE(SUM(reminders_created), 0) FROM users),
+                    (SELECT COALESCE(SUM(reminders), 0) FROM usage_daily WHERE day = CURRENT_DATE),
+                    (SELECT COUNT(DISTINCT user_id) FROM usage_daily WHERE day >= CURRENT_DATE - 7),
+                    (SELECT COUNT(DISTINCT user_id) FROM usage_daily WHERE day = CURRENT_DATE)
+                """,
+                (week_ago, day_ago)
+            )
+            row = cur.fetchone()
+    keys = ("users", "banned", "new_week", "new_day", "reminders", "once",
+            "recurring", "by_days", "notes", "created_total", "created_today",
+            "active_week", "active_today")
+    return dict(zip(keys, row))
+
+def get_user_activity(limit: int = 20):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT u.user_id, u.username, u.first_name, u.reminders_created,
+                          u.registered_at, u.is_banned,
+                          (SELECT COUNT(*) FROM reminders r WHERE r.user_id = u.user_id) AS active,
+                          (SELECT MAX(day) FROM usage_daily d WHERE d.user_id = u.user_id) AS last_day
+                     FROM users u
+                 ORDER BY u.reminders_created DESC, u.registered_at DESC
+                    LIMIT %s""",
+                (limit,)
+            )
+            return _rows_to_dicts(cur, cur.fetchall())
+
 # notes
 
 def add_note(user_id: int, text: str) -> int:

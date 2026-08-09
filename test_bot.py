@@ -2,17 +2,20 @@
 Тесты сборки сообщений и планировщика. Запускать:
     python -X utf8 test_bot.py
 """
+import asyncio
 import os
 import time
 
 os.environ.setdefault("BOT_TOKEN", "dummy")
-os.environ.setdefault("ADMIN_ID", "0")
+os.environ["ADMIN_ID"] = "834815805"
 os.environ.setdefault("DATABASE_URL", "postgresql://dummy")
 
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import admin
 import bot
+import db
 import scheduler as sched
 
 MSK = "Europe/Moscow"
@@ -213,8 +216,130 @@ def case_grace_time_is_generous():
     return []
 
 
+ADMIN_ID = 834815805
+OVERVIEW = {
+    "users": 12, "banned": 1, "new_week": 3, "new_day": 1, "reminders": 40,
+    "once": 25, "recurring": 10, "by_days": 5, "notes": 7,
+    "created_total": 130, "created_today": 4, "active_week": 6, "active_today": 2,
+}
+USER_ROWS = [
+    {"user_id": 111, "username": "temoseee", "first_name": "Артём", "reminders_created": 90,
+     "registered_at": time.time() - 30 * 86400, "is_banned": 0, "active": 12,
+     "last_day": date(2026, 8, 8)},
+    {"user_id": 222, "username": None, "first_name": "Гость <script>", "reminders_created": 3,
+     "registered_at": time.time() - 86400, "is_banned": 1, "active": 0, "last_day": None},
+]
+
+
+class AdminMessage:
+    def __init__(self):
+        self.replies = []
+
+    async def reply_text(self, text, **kw):
+        self.replies.append(text)
+
+
+class AdminUpdate:
+    def __init__(self, user_id):
+        self.message = AdminMessage()
+        self.effective_user = type("U", (), {"id": user_id})()
+
+
+class AdminContext:
+    def __init__(self, args):
+        self.args = args
+
+
+def run_admin(user_id, args):
+    upd = AdminUpdate(user_id)
+    saved = (db.get_admin_overview, db.get_user_activity)
+    db.get_admin_overview = lambda: dict(OVERVIEW)
+    db.get_user_activity = lambda limit=20: USER_ROWS[:limit]
+    try:
+        asyncio.run(admin.cmd_admin(upd, AdminContext(args)))
+    finally:
+        db.get_admin_overview, db.get_user_activity = saved
+    return upd.message.replies
+
+
+def case_admin_only():
+    errors = []
+    if run_admin(ADMIN_ID + 1, []):
+        errors.append("посторонний получил ответ от админки")
+    if run_admin(0, ["users"]):
+        errors.append("админка ответила пользователю без прав")
+    if run_admin(ADMIN_ID + 1, ["ban", "111"]):
+        errors.append("посторонний смог дойти до бана")
+    if not run_admin(ADMIN_ID, []):
+        errors.append("админ не получил сводку")
+    return errors
+
+
+def case_several_admins():
+    import config
+    saved = config.ADMIN_IDS
+    config.ADMIN_IDS = config._parse_ids("834815805, 555, 0, мусор")
+    try:
+        errors = []
+        if config.ADMIN_IDS != {834815805, 555}:
+            errors.append(f"список админов разобран неверно: {config.ADMIN_IDS}")
+        if not run_admin(555, []):
+            errors.append("второй админ из списка не получил доступ")
+        if run_admin(556, []):
+            errors.append("чужой id прошёл проверку")
+    finally:
+        config.ADMIN_IDS = saved
+    return errors
+
+
+def case_admin_overview_numbers():
+    text = admin.format_overview(OVERVIEW, jobs=57)
+    errors = []
+    for fragment in ("Всего: 12", "Активны за неделю: 6", "Сейчас активных: 40",
+                     "Разовых: 25", "По дням недели: 5", "Сегодня: 4", "57"):
+        if fragment not in text:
+            errors.append(f"нет в сводке: {fragment!r}")
+    if "3.3" not in text:
+        errors.append("не посчитано среднее число напоминаний на человека")
+    if "50%" not in text:
+        errors.append("не посчитана доля активных")
+    return errors
+
+
+def case_admin_users_list():
+    text = admin.format_users(USER_ROWS)
+    errors = []
+    if "@temoseee" not in text:
+        errors.append("нет юзернейма")
+    if "90 / 12" not in text:
+        errors.append("нет счётчиков создано/активно")
+    if "🚫" not in text:
+        errors.append("бан не отмечен")
+    if "<script>" in text:
+        errors.append("имя пользователя не экранировано")
+    return errors
+
+
+def case_admin_never_shows_text():
+    # смысл шифрования пропадёт, если админка начнёт показывать содержимое
+    text = admin.format_overview(OVERVIEW, jobs=1) + admin.format_users(USER_ROWS)
+    src = open("admin.py", encoding="utf-8").read()
+    errors = []
+    for leak in ("'message'", '"message"', "get_reminders", "get_notes"):
+        if leak in src:
+            errors.append(f"админка обращается к содержимому: {leak}")
+    if "вынести мусор" in text:
+        errors.append("в выводе оказался текст напоминания")
+    return errors
+
+
 cases = [
     ("заметки экранируются", case_notes_escaped),
+    ("админка только для владельца", case_admin_only),
+    ("несколько админов через запятую", case_several_admins),
+    ("сводка считает верно", case_admin_overview_numbers),
+    ("список пользователей", case_admin_users_list),
+    ("админка не показывает тексты", case_admin_never_shows_text),
     ("интервалы читаются по-русски", case_interval_wording),
     ("текст в списке не обрезается", case_list_text_not_truncated),
     ("разовое напоминание можно перенести", case_once_row_movable),
