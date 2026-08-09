@@ -1331,6 +1331,9 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         if next_fire is None:
             result["error"] = "Укажи время: «через 30 минут», «в 15:00», «завтра утром»"
             return result
+        if next_fire < time.time() + 30:
+            result["error"] = "Слишком близкое время — укажи минимум через 1 минуту."
+            return result
         if next_fire > time.time() + 366 * 86400:
             result["error"] = "Слишком далёкая дата (максимум — 1 год)."
             return result
