@@ -416,7 +416,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         recurring = target["type"] == "recurring" and target.get("interval_seconds")
         if recurring:
-            # сдвигаем от запланированного времени, а не от «сейчас»,
+            # сдвигаем расписание от запланированного времени, а не от «сейчас»,
             # иначе повторяющееся молча меняет час срабатывания
             new_fire = (target.get("next_fire") or _time.time()) + minutes * 60
             while new_fire <= _time.time():
@@ -547,11 +547,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             await update.message.reply_text(t(lang, 'city_searching'))
             tz, display = await _run(city_tz.city_to_timezone, city_input)
             if tz:
+                old_tz = user_row["timezone"] if user_row else "UTC"
                 await _run(db.update_timezone, user.id, tz)
                 context.user_data.pop("awaiting_city", None)
                 user_row = await _run(db.get_user, user.id)
-                await update.message.reply_text(t(lang, 'city_set', display=display), reply_markup=kb)
-                await _send_welcome(update, lang)
+                moved = await _run(sched.reschedule_user, context.bot, user.id, old_tz, tz)
+                note = "\n\n" + t(lang, 'tz_moved', n=moved) if moved else ""
+                await update.message.reply_text(t(lang, 'city_set', display=display) + note, reply_markup=kb)
+                if old_tz in (None, "UTC"):
+                    await _send_welcome(update, lang)
             else:
                 await update.message.reply_text(t(lang, 'city_not_found', city=city_input))
             return

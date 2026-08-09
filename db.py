@@ -125,6 +125,7 @@ def init_db():
             cur.execute("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS days_of_week TEXT")
             cur.execute("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS at_time TEXT")
             cur.execute("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS until DOUBLE PRECISION")
+            cur.execute("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS wall_clock BOOLEAN DEFAULT FALSE")
         conn.commit()
 
 def _row_to_dict(cursor, row):
@@ -205,17 +206,17 @@ def increment_reminders_created(user_id: int):
 
 def add_reminder(user_id, chat_id, message, type_,
                  interval_seconds=None, next_fire=None,
-                 days_of_week=None, at_time=None, until=None):
+                 days_of_week=None, at_time=None, until=None, wall_clock=False):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO reminders
                    (user_id, chat_id, message, type, interval_seconds, next_fire, created_at,
-                    days_of_week, at_time, until)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                    days_of_week, at_time, until, wall_clock)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                 (user_id, chat_id, crypto.encrypt(message), type_,
                  interval_seconds, next_fire, time.time(),
-                 days_of_week, at_time, until)
+                 days_of_week, at_time, until, wall_clock)
             )
             new_id = cur.fetchone()[0]
         conn.commit()

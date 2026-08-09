@@ -10,7 +10,7 @@ os.environ.setdefault("BOT_TOKEN", "dummy")
 os.environ["ADMIN_ID"] = "834815805"
 os.environ.setdefault("DATABASE_URL", "postgresql://dummy")
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import admin
@@ -122,6 +122,81 @@ def case_weekday_row_not_movable():
     if "09:00" not in text:
         errors.append(f"в списке не видно времени: {text}")
     return errors
+
+
+VLA, MSK_TZ = "Asia/Vladivostok", "Europe/Moscow"
+
+
+def case_wall_clock_detected():
+    import parser as p
+    checks = {
+        "напомни через 4 часа позвонить": False,
+        "напомни завтра в 9:00 позвонить": True,
+        "напомни завтра утром позвонить": True,
+        "напоминай каждые 2 часа пить воду": False,
+        "напоминай каждый день в 9:00 таблетки": True,
+        "напоминай по будням в 9:00 зарядка": True,
+    }
+    errors = []
+    for text, want in checks.items():
+        got = bool(p.parse(text, user_tz=VLA)["wall_clock"])
+        if got != want:
+            errors.append(f"{text!r}: ожидалось wall_clock={want}, получено {got}")
+    return errors
+
+
+def case_wall_clock_keeps_the_hour():
+    # 9:00 во Владивостоке должно стать 9:00 в Москве, а не 2:00
+    fire = datetime(2026, 9, 1, 9, 0, tzinfo=ZoneInfo(VLA)).timestamp()
+    shifted = sched.shift_wall_clock(fire, VLA, MSK_TZ)
+    got = datetime.fromtimestamp(shifted, ZoneInfo(MSK_TZ))
+    if (got.hour, got.minute) != (9, 0):
+        return [f"время на часах не сохранилось: {got:%H:%M}"]
+    if got.date() != date(2026, 9, 1):
+        return [f"уехала дата: {got.date()}"]
+    return []
+
+
+def case_duration_keeps_the_moment():
+    # «через 4 часа» — момент не должен двигаться при смене города
+    fire = time.time() + 4 * 3600
+    rows = [{"id": 1, "type": "once", "message": "позвонить", "next_fire": fire,
+             "interval_seconds": None, "wall_clock": False, "days_of_week": None}]
+    saved = (db.get_reminders, db.update_next_fire)
+    changed = []
+    db.get_reminders = lambda uid: rows
+    db.update_next_fire = lambda rid, nf: changed.append((rid, nf))
+    try:
+        moved = sched.reschedule_user(None, 1, VLA, MSK_TZ)
+    finally:
+        db.get_reminders, db.update_next_fire = saved
+    errors = []
+    if changed:
+        errors.append("напоминание по длительности сдвинули, хотя не должны были")
+    if moved:
+        errors.append(f"посчитано перенесённых: {moved}, ожидался 0")
+    return errors
+
+
+def case_wall_clock_reminder_moves_with_city():
+    fire = datetime.now(ZoneInfo(VLA)).replace(microsecond=0) + timedelta(days=2)
+    rows = [{"id": 5, "type": "once", "message": "к врачу", "next_fire": fire.timestamp(),
+             "interval_seconds": None, "wall_clock": True, "days_of_week": None, "chat_id": 42}]
+    saved = (db.get_reminders, db.update_next_fire)
+    changed = []
+    db.get_reminders = lambda uid: rows
+    db.update_next_fire = lambda rid, nf: changed.append((rid, nf))
+    try:
+        sched.reschedule_user(None, 1, VLA, MSK_TZ)
+    finally:
+        db.get_reminders, db.update_next_fire = saved
+        sched.remove_job(5, "once")
+    if not changed:
+        return ["напоминание по часам не переехало вместе с городом"]
+    got = datetime.fromtimestamp(changed[0][1], ZoneInfo(MSK_TZ))
+    if (got.hour, got.minute) != (fire.hour, fire.minute):
+        return [f"час не сохранился: было {fire:%H:%M}, стало {got:%H:%M}"]
+    return []
 
 
 def case_move_menu_offsets():
@@ -344,6 +419,10 @@ cases = [
     ("текст в списке не обрезается", case_list_text_not_truncated),
     ("разовое напоминание можно перенести", case_once_row_movable),
     ("напоминание по дням недели переносить нельзя", case_weekday_row_not_movable),
+    ("часовое время отличается от длительности", case_wall_clock_detected),
+    ("время на часах сохраняется при смене города", case_wall_clock_keeps_the_hour),
+    ("длительность не двигается при смене города", case_duration_keeps_the_moment),
+    ("напоминание по часам едет за городом", case_wall_clock_reminder_moves_with_city),
     ("меню переноса со всеми вариантами", case_move_menu_offsets),
     ("перенос работает после рестарта", case_snooze_recovered_after_restart),
     ("пустое сообщение не восстанавливается", case_snooze_empty_message),

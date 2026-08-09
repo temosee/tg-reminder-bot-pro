@@ -148,6 +148,15 @@ def _parse_until(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
 
     return None
 
+def mentions_clock_time(text: str, tz: zoneinfo.ZoneInfo = None) -> bool:
+    """Названо ли в тексте время на часах («в 9:00», «утром»), а не длительность."""
+    tz = tz or _get_tz(None)
+    lower = _normalize(text.lower())
+    if _resolve_tod(lower) is not None:
+        return True
+    base = datetime.now(tz=tz).replace(second=0, microsecond=0)
+    return _resolve_time(base, lower) is not None
+
 def _time_for_weekday_set(text: str, tz: zoneinfo.ZoneInfo) -> tuple[int, int]:
     base = datetime.now(tz=tz).replace(second=0, microsecond=0)
     ts = _resolve_time(base, text)
@@ -1019,7 +1028,8 @@ _EN_BARE_HOUR = re.compile(r'\bat\s+(\d{1,2})\b(?!\s*(?:am|pm|:\d))', re.IGNOREC
 def _parse_en(text: str, tz: zoneinfo.ZoneInfo) -> dict:
     result = {
         "type": None, "message": None, "interval_seconds": None, "next_fire": None,
-        "days_of_week": None, "at_time": None, "until": None, "error": None,
+        "days_of_week": None, "at_time": None, "until": None,
+        "wall_clock": False, "error": None,
     }
     lower = text.lower().strip()
 
@@ -1164,6 +1174,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         "days_of_week": None,
         "at_time": None,
         "until": None,
+        "wall_clock": False,
         "error": None,
     }
 
@@ -1183,6 +1194,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         result["at_time"] = f"{hh:02d}:{mm:02d}"
         result["next_fire"] = _next_weekday_set(days, hh, mm, tz)
         result["until"] = until_ts
+        result["wall_clock"] = True
         result["message"] = _extract_message(msg) or "напоминание"
         return result
 
@@ -1236,6 +1248,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         result["interval_seconds"] = interval
         result["next_fire"] = first_fire
         result["until"] = until_ts
+        result["wall_clock"] = first_fire is not None and mentions_clock_time(text_clean, tz)
         result["message"] = msg or "напоминание"
         return result
 
@@ -1325,6 +1338,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         msg = _extract_message(msg)
         result["type"] = "once"
         result["next_fire"] = next_fire
+        result["wall_clock"] = mentions_clock_time(lower_for_time, tz)
         result["message"] = msg or "напоминание"
         return result
 

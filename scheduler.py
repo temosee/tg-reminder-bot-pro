@@ -155,6 +155,53 @@ def remove_job(reminder_id: int, type_: str):
     except Exception:
         pass
 
+def shift_wall_clock(next_fire: float, old_tz: str, new_tz: str) -> float:
+    """Оставляет то же время на часах, но уже в новом поясе."""
+    try:
+        old, new = zoneinfo.ZoneInfo(old_tz or "UTC"), zoneinfo.ZoneInfo(new_tz or "UTC")
+    except Exception:
+        return next_fire
+    local = datetime.fromtimestamp(next_fire, tz=old)
+    return local.replace(tzinfo=new).timestamp()
+
+def reschedule_user(bot, user_id: int, old_tz: str, new_tz: str) -> int:
+    """После смены города переносит напоминания, заданные временем на часах."""
+    if old_tz == new_tz:
+        return 0
+    moved = 0
+    for row in db.get_reminders(user_id):
+        try:
+            if row.get("days_of_week"):
+                # у расписания времени в базе нет, достаточно пересобрать задачу
+                add_cron_job(bot, row["id"], row["chat_id"], row["message"],
+                             row["days_of_week"], row.get("at_time"), new_tz, row.get("until"))
+                moved += 1
+                continue
+
+            if not row.get("wall_clock") or not row.get("next_fire"):
+                continue
+
+            new_fire = shift_wall_clock(row["next_fire"], old_tz, new_tz)
+            if row["type"] == "recurring" and row.get("interval_seconds"):
+                while new_fire <= time.time():
+                    new_fire += row["interval_seconds"]
+            elif new_fire <= time.time():
+                continue  # сдвиг увёл бы напоминание в прошлое — оставляем как есть
+
+            db.update_next_fire(row["id"], new_fire)
+            remove_job(row["id"], row["type"])
+            if row["type"] == "recurring":
+                add_recurring_job(bot, row["id"], row["chat_id"], row["message"],
+                                  row["interval_seconds"],
+                                  start_date=datetime.fromtimestamp(new_fire, tz=timezone.utc),
+                                  until=row.get("until"))
+            else:
+                add_once_job(bot, row["id"], row["chat_id"], row["message"], new_fire)
+            moved += 1
+        except Exception as e:
+            logger.error(f"Не удалось перенести напоминание {row.get('id')}: {e}")
+    return moved
+
 def restore_jobs(bot):
     try:
         rows = db.get_all_reminders()
