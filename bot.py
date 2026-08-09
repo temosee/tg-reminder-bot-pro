@@ -397,8 +397,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not target:
             await query.edit_message_text(t(lang, 'already_deleted'))
             return
+        prompt = 'shift_prompt' if target["type"] == "recurring" else 'move_prompt'
         await query.edit_message_text(
-            t(lang, 'move_prompt', msg=target["message"]),
+            t(lang, prompt, msg=target["message"]),
             reply_markup=build_move_menu(rid, lang),
         )
         return
@@ -413,10 +414,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if target.get("days_of_week"):
             await query.edit_message_text(t(lang, 'move_unsupported'))
             return
-        new_fire = _time.time() + minutes * 60
+        recurring = target["type"] == "recurring" and target.get("interval_seconds")
+        if recurring:
+            # сдвигаем от запланированного времени, а не от «сейчас»,
+            # иначе повторяющееся молча меняет час срабатывания
+            new_fire = (target.get("next_fire") or _time.time()) + minutes * 60
+            while new_fire <= _time.time():
+                new_fire += target["interval_seconds"]
+        else:
+            new_fire = _time.time() + minutes * 60
+
         await _run(db.update_next_fire, rid, new_fire)
         sched.remove_job(rid, target["type"])
-        if target["type"] == "recurring":
+        if recurring:
             sched.add_recurring_job(
                 context.bot, rid, target["chat_id"], target["message"],
                 target["interval_seconds"],
@@ -427,7 +437,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sched.add_once_job(context.bot, rid, target["chat_id"], target["message"], new_fire)
         dt = _local_dt(new_fire, query.from_user.id, tz_name)
         await query.edit_message_text(
-            t(lang, 'moved', msg=target['message'], time=_fmt_datetime(dt, lang))
+            t(lang, 'shifted' if recurring else 'moved',
+              msg=target['message'], time=_fmt_datetime(dt, lang))
         )
         return
 
