@@ -5,3 +5,4 @@ geopy==2.4.1
 timezonefinder==8.2.2
 groq>=0.11.0
 psycopg2-binary>=2.9.9
+cryptography>=42.0.0

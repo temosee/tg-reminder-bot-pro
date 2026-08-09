@@ -10,6 +10,8 @@ TIMEZONE = os.environ.get("DEFAULT_TIMEZONE", "Europe/Moscow")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "")
+
 # Лимиты защиты
 MAX_REMINDERS_PER_DAY = int(os.environ.get("MAX_REMINDERS_PER_DAY", "20"))
 MAX_ACTIVE_REMINDERS  = int(os.environ.get("MAX_ACTIVE_REMINDERS", "50"))

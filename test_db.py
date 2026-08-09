@@ -7,7 +7,12 @@ import os
 os.environ.setdefault("BOT_TOKEN", "dummy")
 os.environ.setdefault("DATABASE_URL", "postgresql://dummy")
 
+from cryptography.fernet import Fernet
+
+os.environ.setdefault("ENCRYPTION_KEY", Fernet.generate_key().decode())
+
 import psycopg2
+import crypto
 import db
 import middleware
 
@@ -209,6 +214,52 @@ def case_limit_survives_restart():
         return ["дневной счётчик всё ещё хранится в памяти процесса"]
     return []
 
+def case_reminder_stored_encrypted():
+    plain = "сходить к врачу"
+    live = FakeConn("live", rows=[(1,)])
+    use_pool(FakePool([live]))
+    db.add_reminder(1, 1, plain, "once", next_fire=0)
+    stored = live.params[-1][2]
+    errors = []
+    if stored == plain:
+        errors.append("текст напоминания ушёл в базу открытым")
+    if crypto.decrypt(stored) != plain:
+        errors.append(f"зашифрованное не расшифровывается обратно: {stored!r}")
+    return errors
+
+
+def case_note_stored_encrypted():
+    plain = "пароль от вайфая 12345"
+    live = FakeConn("live", rows=[(1,)])
+    use_pool(FakePool([live]))
+    db.add_note(1, plain)
+    stored = live.params[-1][1]
+    errors = []
+    if stored == plain:
+        errors.append("текст заметки ушёл в базу открытым")
+    if crypto.decrypt(stored) != plain:
+        errors.append("заметка не расшифровывается обратно")
+    return errors
+
+
+def case_legacy_plaintext_still_readable():
+    # записи, сделанные до включения шифрования, должны читаться как есть
+    if crypto.decrypt("старое напоминание") != "старое напоминание":
+        return ["старые незашифрованные записи перестали читаться"]
+    return []
+
+
+def case_works_without_key():
+    saved = crypto._fernet
+    crypto._fernet = None
+    try:
+        if crypto.encrypt("текст") != "текст" or crypto.decrypt("текст") != "текст":
+            return ["без ключа бот должен работать с открытым текстом, а не падать"]
+    finally:
+        crypto._fernet = saved
+    return []
+
+
 cases = [
     ("живое соединение отдаётся как есть", case_alive_connection_used),
     ("мёртвые соединения выбрасываются", case_dead_connections_discarded),
@@ -220,6 +271,10 @@ cases = [
     ("дневной слот не выдаётся сверх лимита", case_daily_slot_exhausted),
     ("лимит активных напоминаний блокирует", case_daily_limit_blocks_user),
     ("дневной счётчик переехал из памяти в базу", case_limit_survives_restart),
+    ("напоминание шифруется перед записью", case_reminder_stored_encrypted),
+    ("заметка шифруется перед записью", case_note_stored_encrypted),
+    ("старые открытые записи читаются", case_legacy_plaintext_still_readable),
+    ("без ключа бот не падает", case_works_without_key),
 ]
 
 ok = fail = 0

@@ -3,6 +3,7 @@ import threading
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
+import crypto
 from config import DATABASE_URL
 
 from contextlib import contextmanager
@@ -212,7 +213,7 @@ def add_reminder(user_id, chat_id, message, type_,
                    (user_id, chat_id, message, type, interval_seconds, next_fire, created_at,
                     days_of_week, at_time, until)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-                (user_id, chat_id, message, type_,
+                (user_id, chat_id, crypto.encrypt(message), type_,
                  interval_seconds, next_fire, time.time(),
                  days_of_week, at_time, until)
             )
@@ -227,7 +228,7 @@ def get_reminders(user_id):
                 "SELECT * FROM reminders WHERE user_id = %s ORDER BY id",
                 (user_id,)
             )
-            return _rows_to_dicts(cur, cur.fetchall())
+            return crypto.decrypt_field(_rows_to_dicts(cur, cur.fetchall()), "message")
 
 def get_reminder(reminder_id: int, user_id: int):
     with get_conn() as conn:
@@ -236,13 +237,14 @@ def get_reminder(reminder_id: int, user_id: int):
                 "SELECT * FROM reminders WHERE id = %s AND user_id = %s",
                 (reminder_id, user_id)
             )
-            return _row_to_dict(cur, cur.fetchone())
+            row = _row_to_dict(cur, cur.fetchone())
+            return crypto.decrypt_field([row], "message")[0] if row else None
 
 def get_all_reminders():
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM reminders ORDER BY id")
-            return _rows_to_dicts(cur, cur.fetchall())
+            return crypto.decrypt_field(_rows_to_dicts(cur, cur.fetchall()), "message")
 
 def get_active_reminders_count(user_id: int) -> int:
     with get_conn() as conn:
@@ -322,7 +324,7 @@ def add_note(user_id: int, text: str) -> int:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO notes (user_id, text, created_at) VALUES (%s, %s, %s) RETURNING id",
-                (user_id, text, time.time())
+                (user_id, crypto.encrypt(text), time.time())
             )
             new_id = cur.fetchone()[0]
         conn.commit()
@@ -335,7 +337,7 @@ def get_notes(user_id: int):
                 "SELECT * FROM notes WHERE user_id = %s ORDER BY id",
                 (user_id,)
             )
-            return _rows_to_dicts(cur, cur.fetchall())
+            return crypto.decrypt_field(_rows_to_dicts(cur, cur.fetchall()), "text")
 
 def delete_note(note_id: int, user_id: int) -> bool:
     with get_conn() as conn:
