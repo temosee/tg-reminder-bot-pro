@@ -808,6 +808,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             user.id, update.effective_chat.id, parsed["message"],
             parsed["type"], parsed.get("interval_seconds"), parsed.get("next_fire"),
             parsed.get("days_of_week"), parsed.get("at_time"), parsed.get("until"),
+            bool(parsed.get("wall_clock")),
         )
         await _run(db.increment_reminders_created, user.id)
         created_ids.append(reminder_id)
