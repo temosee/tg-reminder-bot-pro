@@ -9,6 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.error import Forbidden
 
 import db
 from translations import t
@@ -34,8 +35,8 @@ def _job_id_once(reminder_id: int) -> str:
 def _job_id_recurring(reminder_id: int) -> str:
     return f"recurring_{reminder_id}"
 
-async def _send_once(bot, chat_id: int, message: str, reminder_id: int):
-    lang = await asyncio.to_thread(_user_lang, chat_id)
+async def _send_once(bot, chat_id: int, message: str, reminder_id: int, user_id: int = None):
+    lang = await asyncio.to_thread(_user_lang, user_id if user_id is not None else chat_id)
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(t(lang, 'snooze_15m'), callback_data=f"snooze_{reminder_id}_15"),
@@ -54,6 +55,8 @@ async def _send_once(bot, chat_id: int, message: str, reminder_id: int):
     PENDING_SNOOZE[reminder_id] = {"message": message, "chat_id": chat_id}
     try:
         await bot.send_message(chat_id=chat_id, text=f"⏰ {message}", reply_markup=keyboard)
+    except Forbidden:
+        logger.info(f"Чат {chat_id} недоступен, напоминание {reminder_id} снято")
     except Exception as e:
         logger.error(f"Ошибка отправки разового напоминания {reminder_id}: {e}")
     finally:
@@ -72,6 +75,10 @@ async def _delete_sent(reminder_id: int):
 async def _send_recurring(bot, chat_id: int, message: str, reminder_id: int, interval_seconds: int):
     try:
         await bot.send_message(chat_id=chat_id, text=f"🔔 {message}")
+    except Forbidden:
+        # пользователь заблокировал бота — иначе задача будет биться в стену вечно
+        await _drop_unreachable(reminder_id, chat_id)
+        return
     except Exception as e:
         logger.error(f"Ошибка отправки повторяющегося напоминания: {e}")
     try:
@@ -79,12 +86,13 @@ async def _send_recurring(bot, chat_id: int, message: str, reminder_id: int, int
     except Exception as e:
         logger.error(f"Не удалось обновить next_fire у {reminder_id}: {e}")
 
-def add_once_job(bot, reminder_id: int, chat_id: int, message: str, next_fire: float):
+def add_once_job(bot, reminder_id: int, chat_id: int, message: str, next_fire: float,
+                 user_id: int = None):
     run_date = datetime.fromtimestamp(next_fire, tz=timezone.utc)
     scheduler.add_job(
         _send_once,
         trigger=DateTrigger(run_date=run_date),
-        args=[bot, chat_id, message, reminder_id],
+        args=[bot, chat_id, message, reminder_id, user_id],
         id=_job_id_once(reminder_id),
         replace_existing=True,
     )
@@ -113,8 +121,18 @@ CRON_DAYS = {"mon-fri": "mon-fri", "sat,sun": "sat,sun"}
 async def _send_cron(bot, chat_id: int, message: str, reminder_id: int):
     try:
         await bot.send_message(chat_id=chat_id, text=f"🔔 {message}")
+    except Forbidden:
+        await _drop_unreachable(reminder_id, chat_id)
     except Exception as e:
         logger.error(f"Ошибка отправки напоминания по дням недели: {e}")
+
+async def _drop_unreachable(reminder_id: int, chat_id: int):
+    logger.info(f"Чат {chat_id} недоступен, снимаю напоминание {reminder_id}")
+    remove_job(reminder_id, "recurring")
+    try:
+        await asyncio.to_thread(db.delete_reminder_by_id, reminder_id)
+    except Exception as e:
+        logger.error(f"Не удалось снять напоминание {reminder_id}: {e}")
 
 def add_cron_job(bot, reminder_id: int, chat_id: int, message: str,
                  days: str, at_time: str, tz_name: str = None, until: float = None):
@@ -196,7 +214,7 @@ def reschedule_user(bot, user_id: int, old_tz: str, new_tz: str) -> int:
                                   start_date=datetime.fromtimestamp(new_fire, tz=timezone.utc),
                                   until=row.get("until"))
             else:
-                add_once_job(bot, row["id"], row["chat_id"], row["message"], new_fire)
+                add_once_job(bot, row["id"], row["chat_id"], row["message"], new_fire, row["user_id"])
             moved += 1
         except Exception as e:
             logger.error(f"Не удалось перенести напоминание {row.get('id')}: {e}")
@@ -218,17 +236,18 @@ def restore_jobs(bot):
             if row.get("days_of_week"):
                 add_cron_job(bot, row["id"], row["chat_id"], row["message"],
                              row["days_of_week"], row.get("at_time"),
-                             _user_tz(row["chat_id"]), row.get("until"))
+                             _user_tz(row["user_id"]), row.get("until"))
                 continue
 
             if row["type"] == "once":
                 if row["next_fire"] and row["next_fire"] > time.time():
-                    add_once_job(bot, row["id"], row["chat_id"], row["message"], row["next_fire"])
+                    add_once_job(bot, row["id"], row["chat_id"], row["message"], row["next_fire"], row["user_id"])
                 else:
-                    lang = _user_lang(row["chat_id"])
+                    lang = _user_lang(row["user_id"])
                     overdue_message = t(lang, 'overdue', msg=row['message'])
-                    overdue_offset += 2
-                    add_once_job(bot, row["id"], row["chat_id"], overdue_message, time.time() + 5 + overdue_offset)
+                    overdue_offset = min(overdue_offset + 2, 600)
+                    add_once_job(bot, row["id"], row["chat_id"], overdue_message,
+                                 time.time() + 5 + overdue_offset, row["user_id"])
 
             elif row["type"] == "recurring":
                 if not row.get("interval_seconds"):
