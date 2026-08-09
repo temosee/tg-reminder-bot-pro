@@ -1,4 +1,6 @@
 import re
+import threading
+import time
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut
 from timezonefinder import TimezoneFinder
@@ -160,6 +162,17 @@ _ALIASES = {
 }
 
 _geolocator = Nominatim(user_agent="tg-reminder-bot/1.0")
+_geo_lock = threading.Lock()
+_last_call = [0.0]
+
+def _throttle():
+    # Nominatim просит не чаще одного запроса в секунду
+    with _geo_lock:
+        wait = 1.0 - (time.monotonic() - _last_call[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last_call[0] = time.monotonic()
+
 _tf = TimezoneFinder()
 
 _CYRILLIC = re.compile(r'[а-яёА-ЯЁ]')
@@ -183,8 +196,10 @@ def city_to_timezone(city_input: str) -> tuple[str | None, str | None]:
     lang = "ru" if _CYRILLIC.search(city_normalized) else "en"
 
     try:
+        _throttle()
         location = _geolocator.geocode(city_normalized, language=lang, timeout=5)
         if not location:
+            _throttle()
             location = _geolocator.geocode(city_normalized, timeout=5)
     except GeocoderTimedOut:
         return None, None
