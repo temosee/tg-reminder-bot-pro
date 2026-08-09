@@ -97,6 +97,40 @@ _UNTIL_EN = (
     r"\b(?:until|till|through)\s+(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?"
 )
 
+# «15.09» — дата, но «в 15.09» — это время, поэтому предлог отсекаем
+NUMERIC_DATE = re.compile(r"(?<!\w)(?<!в )(?<!в  )(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?!\d)")
+
+MONTH_DAYS = {1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30,
+              7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
+
+def impossible_date(text: str) -> str | None:
+    """Возвращает сообщение об ошибке, если названа несуществующая дата."""
+    pairs = []
+    m = re.search(r"\b(\d{1,2})\s+(" + "|".join(MONTHS_RU) + r")\b", text)
+    if m:
+        pairs.append((int(m.group(1)), MONTHS_RU[m.group(2)]))
+    m = NUMERIC_DATE.search(text)
+    if m:
+        pairs.append((int(m.group(1)), int(m.group(2))))
+    for day, month in pairs:
+        if not 1 <= month <= 12:
+            return f"Месяца с номером {month} не бывает."
+        if day < 1 or day > MONTH_DAYS[month]:
+            return f"Такой даты не существует — в этом месяце дней не больше {MONTH_DAYS[month]}."
+        if (day, month) == (29, 2):
+            year = datetime.now().year
+            if not any(_is_leap(year + off) for off in (0, 1)):
+                return f"29 февраля бывает только в високосный год, ближайший — {_next_leap(year)}."
+    return None
+
+def _is_leap(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+def _next_leap(year: int) -> int:
+    while not _is_leap(year):
+        year += 1
+    return year
+
 def _match_weekday_set(text: str, sets: dict) -> str | None:
     for days, pattern in sets.items():
         if re.search(pattern, text, re.IGNORECASE):
@@ -404,20 +438,35 @@ def _parse_once_delta(text: str, tz: zoneinfo.ZoneInfo = None) -> float | None:
     }
     m_dm = re.search(r"\b(\d{1,2})\s+(" + "|".join(_MONTHS_RU) + r")\b", text)
     m_dm_word = re.search(r"\b(" + "|".join(sorted(_ORDINAL_DAY, key=len, reverse=True)) + r")\s+(" + "|".join(_MONTHS_RU) + r")\b", text)
-    if m_dm or m_dm_word:
+    m_dm_num = NUMERIC_DATE.search(text)
+    if m_dm or m_dm_word or m_dm_num:
+        year_hint = None
         if m_dm:
             day = int(m_dm.group(1))
             month = _MONTHS_RU[m_dm.group(2)]
-        else:
+        elif m_dm_word:
             day = _ORDINAL_DAY[m_dm_word.group(1)]
             month = _MONTHS_RU[m_dm_word.group(2)]
+        else:
+            day, month = int(m_dm_num.group(1)), int(m_dm_num.group(2))
+            if m_dm_num.group(3):
+                year_hint = int(m_dm_num.group(3))
+                year_hint += 2000 if year_hint < 100 else 0
         now = datetime.now(tz=tz)
+        if year_hint:
+            try:
+                target = now.replace(year=year_hint, month=month, day=day,
+                                     hour=9, minute=0, second=0, microsecond=0)
+            except ValueError:
+                return None
+            ts = _resolve_time(target, text)
+            return ts if ts is not None else target.timestamp()
         for year_off in (0, 1):
             try:
                 target = now.replace(year=now.year + year_off, month=month, day=day,
                                      hour=9, minute=0, second=0, microsecond=0)
             except ValueError:
-                return None
+                continue
             if target.timestamp() > time.time():
                 ts = _resolve_time(target, text)
                 return ts if ts is not None else target.timestamp()
@@ -707,6 +756,8 @@ _DELTA_STRIP = (
 
 _WORD_HOUR_PAT = r"один|два|три|четыре|пять|шесть|семь|восемь|девять|десять|одиннадцать|двенадцать"
 
+_NUMERIC_DATE_STRIP = r"(?<!\w)(?<!в )\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?(?!\d)"
+
 _TIME_STRIP = (
     r"(?:(?:завтра|сегодня)\s+)?в\s+\d{1,2}(?:[:.]\d{2})?\s*(?:утра|дня|вечера|ночи|час(?:ов|а)?(?:\s+(?:утра|дня|вечера|ночи))?|ч\b)?"
     rf"|\bв\s+(?:{_WORD_HOUR_PAT})\s*(?:час[а-ов]*\s+)?(?:утра|дня|вечера|ночи)?\b"
@@ -788,6 +839,11 @@ def parse(text: str, user_tz: str | None = None) -> dict:
         "wall_clock": False,
         "error": None,
     }
+
+    bad_date = impossible_date(lower)
+    if bad_date:
+        result["error"] = bad_date
+        return result
 
     until_ts = _parse_until(lower, tz)
     if until_ts is not None and until_ts < time.time():
@@ -924,6 +980,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
                 msg = text_clean[_chto_cut:].strip()
             else:
                 msg = re.sub(_TIME_STRIP, "", text_norm, flags=re.IGNORECASE)
+            msg = re.sub(_NUMERIC_DATE_STRIP, "", msg)
         elif _chto_marker:
             msg = text_clean[_chto_cut:].strip()
         elif _named_day:
@@ -949,7 +1006,7 @@ def parse(text: str, user_tz: str | None = None) -> dict:
             result["error"] = "Слишком далёкая дата (максимум — 1 год)."
             return result
 
-        msg = _extract_message(msg)
+        msg = _extract_message(re.sub(_NUMERIC_DATE_STRIP, "", msg))
         result["type"] = "once"
         result["next_fire"] = next_fire
         result["wall_clock"] = mentions_clock_time(lower_for_time, tz)
