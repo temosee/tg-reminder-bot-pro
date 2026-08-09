@@ -1,14 +1,7 @@
-"""
-Определяет timezone по названию города.
-Поддерживает разговорные сокращения, опечатки (через Nominatim).
-Поддерживает города на русском, английском и других языках.
-"""
-
 import re
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut
 from timezonefinder import TimezoneFinder
-import zoneinfo
 
 # city aliases
 _ALIASES = {
@@ -130,59 +123,17 @@ _geolocator = Nominatim(user_agent="tg-reminder-bot/1.0")
 _tf = TimezoneFinder()
 
 _CYRILLIC = re.compile(r'[а-яёА-ЯЁ]')
-
-_OFFSET_RE = re.compile(
-    r'^(?:UTC|GMT)?\s*([+-])\s*(\d{1,2})(?::(\d{2}))?$', re.IGNORECASE
-)
-
-# offset → IANA tz
-_OFFSET_TO_IANA = {
-    -720: "Etc/GMT+12", -660: "Etc/GMT+11", -600: "Etc/GMT+10",
-    -540: "Etc/GMT+9",  -480: "Etc/GMT+8",  -420: "Etc/GMT+7",
-    -360: "Etc/GMT+6",  -300: "Etc/GMT+5",  -240: "Etc/GMT+4",
-    -180: "America/Sao_Paulo", -120: "Etc/GMT+2", -60: "Etc/GMT+1",
-      0:  "UTC",
-     60:  "Etc/GMT-1",   120: "Europe/Paris",  180: "Europe/Moscow",
-    210:  "Asia/Tehran", 240: "Asia/Dubai",    270: "Asia/Kabul",
-    300:  "Asia/Karachi",330: "Asia/Kolkata",  345: "Asia/Kathmandu",
-    360:  "Asia/Dhaka",  390: "Asia/Rangoon",  420: "Asia/Bangkok",
-    480:  "Asia/Shanghai", 525: "Asia/Pyongyang", 540: "Asia/Tokyo",
-    570:  "Australia/Adelaide", 600: "Australia/Sydney",
-    630:  "Pacific/Norfolk", 660: "Pacific/Guadalcanal",
-    720:  "Pacific/Auckland", 780: "Pacific/Apia",
-    840:  "Pacific/Kiritimati",
-}
-
-def _offset_to_tz(city_input: str) -> tuple[str | None, str | None]:
-    """Парсит '+7', 'UTC+3', 'GMT-5', '+5:30' → (tz_str, display)."""
-    m = _OFFSET_RE.match(city_input.strip())
-    if not m:
-        return None, None
-    sign = 1 if m.group(1) == '+' else -1
-    hours = int(m.group(2))
-    minutes = int(m.group(3) or 0)
-    total_minutes = sign * (hours * 60 + minutes)
-    iana = _OFFSET_TO_IANA.get(total_minutes)
-    if not iana:
-        return None, None
-    sign_str = '+' if sign > 0 else '-'
-    display = f"UTC{sign_str}{hours}" + (f":{minutes:02d}" if minutes else "")
-    return iana, display
+_HAS_LETTER = re.compile(r'[^\W\d_]', re.UNICODE)
+_LOOKS_LIKE_OFFSET = re.compile(r'^(?:UTC|GMT)?\s*[+-]?\s*\d{1,2}(?::\d{2})?$', re.IGNORECASE)
 
 def city_to_timezone(city_input: str) -> tuple[str | None, str | None]:
-    """
-    Возвращает (timezone_str, display_name) или (None, None) если не найдено.
-    Принимает название города (любой язык) или UTC-офсет (+7, UTC+3).
-    """
+    """Возвращает (timezone_str, display_name) или (None, None) если город не найден."""
     city = city_input.strip()
     city_lower = city.lower()
 
-    # try UTC offset first
-    tz_offset, display_offset = _offset_to_tz(city)
-    if tz_offset:
-        return tz_offset, display_offset
-    if _OFFSET_RE.match(city):
-        return None, None  # похоже на офсет, но невалидный — не геокодим
+    # геокодер находит что угодно: «+7» станет станцией метро, «UTC+3» — деревней
+    if len(city) < 2 or not _HAS_LETTER.search(city) or _LOOKS_LIKE_OFFSET.match(city):
+        return None, None
 
     # apply aliases
     alias_target = _ALIASES.get(city_lower)
