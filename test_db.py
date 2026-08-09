@@ -201,7 +201,7 @@ def case_daily_slot_exhausted():
 def case_daily_limit_blocks_user():
     live = FakeConn("live", rows=[(50,)])  # get_active_reminders_count
     use_pool(FakePool([live, FakeConn("live2", rows=[])]))
-    allowed, err = middleware.check_new_reminder(1, "ru")
+    allowed, err = middleware.check_new_reminder(1)
     if allowed:
         return ["пользователь пропущен при исчерпанном лимите активных"]
     if not err:

@@ -160,15 +160,6 @@ def get_user(user_id: int):
             row = cur.fetchone()
             return _row_to_dict(cur, row)
 
-def update_language(user_id: int, language: str):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE users SET language = %s WHERE user_id = %s",
-                (language, user_id)
-            )
-        conn.commit()
-
 def update_timezone(user_id: int, timezone: str):
     with get_conn() as conn:
         with conn.cursor() as cur:

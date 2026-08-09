@@ -136,64 +136,6 @@ tests = [
     ("напоминай пить воду каждые 2 часа",                        "recurring", "пить воду",       2*HOUR, None),
     ("ставь напоминание раз в 3 дня поливать цветы",             "recurring", "поливать цветы",  3*DAY,  None),
 
-    ("remind me in 30 minutes to drink water",        "once", "drink water",        None, 30*MINUTE),
-    ("remind me in 2 hours to take a pill",           "once", "take a pill",        None, 2*HOUR),
-    ("remind me in 3 hours to drink milk",            "once", "drink milk",         None, 3*HOUR),
-    ("remind me in 1 day to call mom",                "once", "call mom",           None, DAY),
-    ("remind me in 45 minutes to go outside",         "once", "go outside",         None, 45*MINUTE),
-    ("remind me in 10 minutes",                       "once", "reminder",           None, 10*MINUTE),
-    ("let me know in 15 minutes",                     "once", "reminder",           None, 15*MINUTE),
-    ("don't forget to call John in 2 hours",          "once", "call John",          None, 2*HOUR),
-    ("remind me in a couple hours to check mail",     "once", "check mail",         None, 2*HOUR),
-
-    ("remind me tomorrow to buy groceries",           "once", "buy groceries",      None, DAY),
-    ("remind me tomorrow at 9am to go to gym",        "once", "go to gym",          None, None),
-    ("remind me tomorrow morning to call doctor",     "once", "call doctor",        None, None),
-    ("remind me tomorrow evening to take medicine",   "once", "take medicine",      None, None),
-    ("set a reminder for tomorrow morning to run",    "once", "run",                None, None),
-    ("remind me today in the evening to check",       "once", "check",              None, None),
-
-    ("remind me on Friday to submit report",          "once", "submit report",      None, None),
-    ("remind me on Monday to buy tickets",            "once", "buy tickets",        None, None),
-    ("remind me next Saturday to clean the house",    "once", "clean the house",    None, None),
-    ("remind me next Monday morning to call bank",    "once", "call bank",          None, None),
-
-    ("remind me at 15:00 to call mom",                "once", "call mom",           None, None),
-    ("remind me at 9am to do workout",                "once", "do workout",         None, None),
-    ("remind me at 10pm to take medicine",            "once", "take medicine",      None, None),
-    ("set a reminder at 8:30 to wake up",             "once", "wake up",            None, None),
-    ("remind me at noon to eat lunch",                "once", "eat lunch",          None, None),
-
-    ("remind me in the morning to drink water",       "once", "drink water",        None, None),
-    ("remind me in the evening to check email",       "once", "check email",        None, None),
-    ("remind me tonight to take pills",               "once", "take pills",         None, None),
-
-    ("remind me every 2 hours to drink water",        "recurring", "drink water",   2*HOUR,    None),
-    ("remind me every 30 minutes to stretch",         "recurring", "stretch",       30*MINUTE, None),
-    ("remind me every day to exercise",               "recurring", "exercise",      DAY,       None),
-    ("remind me every week to call parents",          "recurring", "call parents",  7*DAY,     None),
-    ("every hour check email",                        "recurring", "check email",   HOUR,      None),
-    ("every 20 minutes drink water",                  "recurring", "drink water",   20*MINUTE, None),
-    ("every 3 hours take medicine",                   "recurring", "take medicine", 3*HOUR,    None),
-    ("remind me every day at 8am to do workout",      "recurring", "do workout",    DAY,       None),
-
-    ("remind me to pick up pastries at 7:00 pm today","once", "pick up pastries", None, None),
-    ("remind me at 7pm to call",                      "once", "call",             None, None),
-    ("remind me at 9:30 am to wake up",               "once", "wake up",          None, None),
-    ("remind me tomorrow at 8:00 pm to go out",       "once", "go out",           None, None),
-    ("remind me tomorrow at 15 to submit",            "once", "submit",           None, None),
-    ("remind me to go to the shop at 12",             "once", "go to the shop",   None, None),
-    ("remind me at 9 to call",                        "once", "call",             None, None),
-
-    ("remind me today at 7pm that tomorrow at 7am will be exam",
-                                                       "once", "tomorrow at 7am will be exam", None, None),
-    ("remind me at 8pm that in 3 days there is a meeting",
-                                                       "once", "in 3 days there is a meeting", None, None),
-    ("remind me on Friday that next Monday is deadline",
-                                                       "once", "next Monday is deadline",       None, None),
-    ("remind me tomorrow morning that today I have gym",
-                                                       "once", "today I have gym",              None, None),
-
     ("напомни сегодня в 19:00 что завтра в 7 утра экзамен",
                                                        "once", "завтра в 7 утра экзамен",       None, None),
     ("напомни в пятницу что в понедельник дедлайн",
@@ -232,11 +174,6 @@ tests = [
     ("напоминай каждую среду в 9 утра созвон с командой",  "recurring","созвон с командой",     7*DAY, None),
     ("каждый вторник в 15 часов напомни позвонить врачу",  "recurring","позвонить врачу",       7*DAY, None),
 
-    ("remind me every monday at 10:00 to submit report",   "recurring","submit report",          7*DAY, None),
-    ("remind me every friday at 6pm to check tasks",       "recurring","check tasks",            7*DAY, None),
-    ("every tuesday at 3pm call the team",                 "recurring","call the team",          7*DAY, None),
-    ("every sunday at 9am do workout",                     "recurring","do workout",             7*DAY, None),
-
     ("напомни через час и позвонить маме",              "once", "позвонить маме",                None, HOUR),
     ("напомни завтра а поговорить с другом",            "once", "поговорить с другом",           None, DAY),
 
@@ -247,8 +184,6 @@ tests = [
     ("напомни через минуту позвонить",                  "once", "позвонить",                     None, MINUTE),
 
     ("напомни через 30 минут",                          "once", "напоминание",                   None, 30*MINUTE),
-    ("remind me in 1 hour",                             "once", "reminder",                      None, HOUR),
-
     ("ставь напоминание раз в час проверить почту",     "recurring", "проверить почту",          HOUR, None),
     ("раз в 2 часа напомни выпить воды",                "recurring", "выпить воды",              2*HOUR, None),
 
@@ -260,12 +195,6 @@ tests = [
 
     ("напомни   через   час   поесть",                  "once", "поесть",                        None, HOUR),
     ("пожалуйста напомни мне пожалуйста через час пойти в магазин", "once", "пойти в магазин",  None, HOUR),
-
-    ("remind me every 2 days at 8am to workout",        "recurring", "workout",                  2*DAY, None),
-    ("remind me every 3 days to call parents",          "recurring", "call parents",              3*DAY, None),
-
-    ("remind me tomorrow in the morning to run",        "once", "run",                           None, None),
-    ("remind me in the morning to drink water",         "once", "drink water",                   None, None),
 
     ("напомни через сутки вынести мусор",               "once",      "вынести мусор",            None, DAY),
     ("напомни через 2 суток купить подарок",            "once",      "купить подарок",            None, 2*DAY),
@@ -281,12 +210,6 @@ tests = [
     ("напомни в десять вечера лечь спать",              "once",      "лечь спать",                None, None),
     ("напомни в семь утра сделать зарядку",             "once",      "сделать зарядку",           None, None),
 
-    ("remind me in half an hour to call",               "once",      "call",                      None, 30*MINUTE),
-    ("remind me in half an hour",                       "once",      "reminder",                  None, 30*MINUTE),
-
-    ("remind me the day after tomorrow to submit",      "once",      "submit",                    None, None),
-    ("remind me day after tomorrow at 10am to call",    "once",      "call",                      None, None),
-
     ("напоминай ежечасно пить воду",                    "recurring", "пить воду",                 HOUR, None),
     ("напоминай ежечасно проверять почту",              "recurring", "проверять почту",            HOUR, None),
 
@@ -298,8 +221,6 @@ tests = [
     ("через час напомни пожалуйста позвонить",          "once",      "позвонить",                 None, HOUR),
 
     ("можешь в 19:00 напомнить мне поужинать",          "once",      "поужинать",                 None, None),
-    ("remind me in an hour to drink water",             "once",      "drink water",               None, HOUR),
-
     ("привет бро смотри напоминай каждые 2 дня в обед делать разминку", "recurring", "делать разминку", 2*DAY, None),
     ("привет напомни через час позвонить",              "once",      "позвонить",                 None, HOUR),
     ("бро напомни через час позвонить",                 "once",      "позвонить",                 None, HOUR),
@@ -338,21 +259,6 @@ error_tests = [
     ("что делать сегодня",                          "Не понял"),
     ("хочу покушать",                               "Не понял"),
     ("просто текст без команды",                     "Не понял"),
-
-    ("remind every day at 8 to stretch",            "AM or PM"),
-    ("remind me every week at 9 to call",           "AM or PM"),
-    ("remind every 2 days at 7 to workout",         "AM or PM"),
-
-    ("remind me to call mom",                       "Specify time"),
-    ("remind me to buy groceries",                  "Specify time"),
-
-    ("remind me every to drink water",              "Specify interval"),
-
-    ("what time is it",                             "Couldn't"),
-    ("hello how are you",                           "Couldn't"),
-
-    ("",                                            ""),
-    ("   ",                                         ""),
 
     ("напомни!!!",                                  "Укажи время"),
 
@@ -407,11 +313,6 @@ field_tests = [
     ("напоминай по будням вечером гулять",
      dict(days_of_week="mon-fri", at_time="17:00")),
 
-    ("remind me on weekdays at 8am to run",
-     dict(type="recurring", days_of_week="mon-fri", at_time="08:00", message="run")),
-    ("remind me on weekends at 10am to rest",
-     dict(type="recurring", days_of_week="sat,sun", at_time="10:00", message="rest")),
-
     ("напоминай каждый день в 9:00 пить таблетки до 1 сентября",
      dict(type="recurring", interval_seconds=86400, message="пить таблетки", until_date="01.09")),
     ("напоминай каждый час пить воду до 31.12",
@@ -427,9 +328,7 @@ field_tests = [
 
 weekday_fire_tests = [
     ("напоминай по будням в 9:00 зарядка", {0, 1, 2, 3, 4}, 9, 0),
-    ("напоминай по выходным в 11:30 отдых", {5, 6}, 11, 30),
-    ("remind me on weekdays at 7am to run", {0, 1, 2, 3, 4}, 7, 0),
-]
+    ("напоминай по выходным в 11:30 отдых", {5, 6}, 11, 30),]
 
 ok = fail = 0
 for text, exp_type, exp_msg, exp_interval, exp_delta in tests:

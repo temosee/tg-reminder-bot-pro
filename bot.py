@@ -40,18 +40,15 @@ async def _run(func, *args, **kwargs):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_executor, functools.partial(func, *args, **kwargs))
 
-def get_lang(user_row) -> str:
-    return (user_row.get('language') or 'ru') if user_row else 'ru'
-
-def get_keyboard(lang: str):
+def get_keyboard():
     return ReplyKeyboardMarkup(
         [
-            [t(lang, 'btn_reminders'), t(lang, 'btn_stats')],
-            [t(lang, 'btn_notes')],
-            [t(lang, 'btn_settings')],
+            [t('btn_reminders'), t('btn_stats')],
+            [t('btn_notes')],
+            [t('btn_settings')],
         ],
         resize_keyboard=True,
-        input_field_placeholder=t(lang, 'placeholder'),
+        input_field_placeholder=t('placeholder'),
     )
 
 def _plural_ru(n: int, one: str, few: str, many: str) -> str:
@@ -68,47 +65,37 @@ _UNITS_RU = {
     'day':  ("каждый день",    ("день", "дня", "дней")),
     'week': ("каждую неделю",  ("неделю", "недели", "недель")),
 }
-_UNITS_EN = {
-    'sec': "second", 'min': "minute", 'hour': "hour", 'day': "day", 'week': "week",
-}
-
-def _every(n: int, unit: str, lang: str) -> str:
-    if lang == 'en':
-        word = _UNITS_EN[unit]
-        return f"every {word}" if n == 1 else f"every {n} {word}s"
+def _every(n: int, unit: str) -> str:
     single, forms = _UNITS_RU[unit]
     if n == 1:
         return single
     return f"каждые {n} {_plural_ru(n, *forms)}"
 
-def format_interval(seconds: int, lang: str = 'ru') -> str:
+def format_interval(seconds: int) -> str:
     if seconds % 604800 == 0:
-        return _every(seconds // 604800, 'week', lang)
+        return _every(seconds // 604800, 'week')
     if seconds % 86400 == 0:
-        return _every(seconds // 86400, 'day', lang)
+        return _every(seconds // 86400, 'day')
     if seconds % 3600 == 0:
-        return _every(seconds // 3600, 'hour', lang)
+        return _every(seconds // 3600, 'hour')
     if seconds % 60 == 0:
-        return _every(seconds // 60, 'min', lang)
-    return _every(seconds, 'sec', lang)
+        return _every(seconds // 60, 'min')
+    return _every(seconds, 'sec')
 
 INTENT_NOTES_LIST = [
     "мои заметки", "покажи заметки", "все заметки", "заметки",
     "🗒 заметки", "список заметок", "покажи все заметки",
-    "🗒 notes", "notes", "my notes", "show notes", "all notes",
 ]
 
 INTENT_NOTES_ADD = re.compile(
-    r"^\s*(?:запомни(?:\s+что)?\s*:?\s+|remember\s*:\s*)(.+)$",
+    r"^\s*запомни(?:\s+что)?\s*:?\s+(.+)$",
     re.IGNORECASE | re.DOTALL
 )
 
 INTENT_NOTES_DELETE = re.compile(
-    r"^\s*(?:забудь\s+про|forget\s+about)\s+(.+)$",
+    r"^\s*забудь\s+про\s+(.+)$",
     re.IGNORECASE | re.DOTALL
 )
-
-PENDING_AMPM: dict[int, str] = {}  # user_id → original reminder text awaiting am/pm
 
 _AMPM_REPLY = re.compile(r'\b(am|pm)\b', re.IGNORECASE)
 
@@ -123,8 +110,6 @@ INTENT_LIST = [
     "мои дела", "что запланировано", "какие есть напоминания",
     "есть напоминания", "есть что", "что там", "покажи",
     "текущие напоминания", "сколько напоминаний",
-    "📋 my reminders", "my reminders", "reminders", "show reminders",
-    "list reminders", "active reminders",
 ]
 
 INTENT_DELETE_ALL = [
@@ -133,7 +118,6 @@ INTENT_DELETE_ALL = [
     "убери все напоминания", "сотри все", "сотри всё",
     "сотри все напоминания", "удалить все напоминания",
     "очисти список", "снеси все", "снеси всё",
-    "delete all", "remove all", "clear all", "delete all reminders",
 ]
 
 ORDINAL_TO_INDEX = {
@@ -165,25 +149,12 @@ INTENT_DELETE_ORDINAL = re.compile(
     re.IGNORECASE
 )
 
-INTENT_DELETE_LAST_EN = re.compile(
-    r"\b(delete|remove|cancel|drop)\s+(the\s+)?last(\s+reminder)?\b",
-    re.IGNORECASE
-)
 
 INTENT_DELETE_N = re.compile(
     r"(удали|удалить|убери|убрать|отмени|отменить)\s+"
     r"(напоминание\s+)?(?:#?(\d+)|номер\s+(\d+)|под\s+номером\s+(\d+))"
 )
 
-INTENT_LANG_CHANGE = re.compile(
-    r"(поменять|поменяй|смени|сменить|изменить|измени)\s+язык"
-    r"|язык\s+(поменять|сменить|изменить)"
-    r"|хочу\s+(поменять|сменить)\s+язык"
-    r"|change\s+lang(uage)?"
-    r"|switch\s+lang(uage)?"
-    r"|set\s+lang(uage)?",
-    re.IGNORECASE
-)
 
 def _too_many_newcomers() -> bool:
     try:
@@ -217,15 +188,11 @@ def _local_dt(ts: float, user_id: int, tz_name: str = None) -> datetime:
     tz = _tz(tz_name) if tz_name else _get_user_tz(user_id)
     return datetime.fromtimestamp(ts, tz=tz)
 
-def _fmt_time(dt: datetime, lang: str) -> str:
-    if lang == 'en':
-        return dt.strftime('%I:%M %p').lstrip('0')
+def _fmt_time(dt: datetime) -> str:
     return dt.strftime('%H:%M')
 
-def _fmt_datetime(dt: datetime, lang: str) -> str:
+def _fmt_datetime(dt: datetime) -> str:
     year = '.%y' if dt.year != datetime.now(tz=dt.tzinfo).year else ''
-    if lang == 'en':
-        return dt.strftime(f'%I:%M %p %d.%m{year}').lstrip('0')
     return dt.strftime(f'%H:%M %d.%m{year}')
 
 PAGE_SIZE = 8
@@ -246,7 +213,7 @@ def _fit(lines: list[str]) -> str:
         budget -= len(line) + 1
     return chr(10).join(trimmed)
 
-def _page_nav(page: int, total: int, prefix: str, lang: str, size: int = PAGE_SIZE):
+def _page_nav(page: int, total: int, prefix: str, size: int = PAGE_SIZE):
     pages = max(1, (total + size - 1) // size)
     if pages == 1:
         return None, pages
@@ -258,45 +225,45 @@ def _page_nav(page: int, total: int, prefix: str, lang: str, size: int = PAGE_SI
         row.append(InlineKeyboardButton("›", callback_data=f"{prefix}{page + 1}"))
     return row, pages
 
-def build_reminders_message(reminders, user_id: int, lang: str, tz_name: str = None, page: int = 0):
+def build_reminders_message(reminders, user_id: int, tz_name: str = None, page: int = 0):
     if tz_name is None:
         tz_name = str(_get_user_tz(user_id))
     total = len(reminders)
-    nav, pages = _page_nav(page, total, "rpage_", lang)
+    nav, pages = _page_nav(page, total, "rpage_")
     page = max(0, min(page, pages - 1))
-    nav, pages = _page_nav(page, total, "rpage_", lang)
+    nav, pages = _page_nav(page, total, "rpage_")
     chunk = reminders[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
 
-    lines = [t(lang, 'reminders_header')]
+    lines = [t('reminders_header')]
     buttons = []
     for offset, r in enumerate(chunk):
         n = page * PAGE_SIZE + offset + 1
         if r.get("days_of_week"):
-            days_str = t(lang, 'days_weekdays' if r["days_of_week"] == "mon-fri" else 'days_weekend')
-            label = t(lang, 'label_days', days=days_str, time=r.get("at_time") or "09:00", msg=r['message'])
+            days_str = t('days_weekdays' if r["days_of_week"] == "mon-fri" else 'days_weekend')
+            label = t('label_days', days=days_str, time=r.get("at_time") or "09:00", msg=r['message'])
         elif r["type"] == "recurring":
-            interval_str = format_interval(r["interval_seconds"], lang)
+            interval_str = format_interval(r["interval_seconds"])
             if r.get("next_fire") and r["interval_seconds"] >= 86400:
                 dt = _local_dt(r["next_fire"], user_id, tz_name)
-                label = t(lang, 'label_recurring_at', interval=interval_str, time=_fmt_time(dt, lang), msg=r['message'])
+                label = t('label_recurring_at', interval=interval_str, time=_fmt_time(dt), msg=r['message'])
             else:
-                label = t(lang, 'label_recurring', interval=interval_str, msg=r['message'])
+                label = t('label_recurring', interval=interval_str, msg=r['message'])
         else:
             dt = _local_dt(r["next_fire"], user_id, tz_name)
-            label = t(lang, 'label_once', time=_fmt_datetime(dt, lang), msg=r['message'])
+            label = t('label_once', time=_fmt_datetime(dt), msg=r['message'])
         lines.append(f"{n}. {html.escape(label)}")
         row = []
         # у напоминаний по дням недели переносить нечего — только удалить
         if not r.get("days_of_week"):
-            row.append(InlineKeyboardButton(t(lang, 'btn_move_n', n=n), callback_data=f"move_{r['id']}"))
-        row.append(InlineKeyboardButton(t(lang, 'btn_delete_n', n=n), callback_data=f"del_{r['id']}"))
+            row.append(InlineKeyboardButton(t('btn_move_n', n=n), callback_data=f"move_{r['id']}"))
+        row.append(InlineKeyboardButton(t('btn_delete_n', n=n), callback_data=f"del_{r['id']}"))
         buttons.append(row)
     if nav:
         buttons.append(nav)
-    buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
+    buttons.append([InlineKeyboardButton(t('btn_close'), callback_data="close")])
     if pages > 1:
         lines.append("")
-        lines.append(t(lang, 'page_of', page=page + 1, pages=pages, total=total))
+        lines.append(t('page_of', page=page + 1, pages=pages, total=total))
     return _fit(lines), InlineKeyboardMarkup(buttons)
 
 MOVE_OPTIONS = [
@@ -305,14 +272,14 @@ MOVE_OPTIONS = [
     ('snooze_6h', 360), ('move_1d', 1440),
 ]
 
-def build_move_menu(reminder_id: int, lang: str):
+def build_move_menu(reminder_id: int):
     rows = []
     for i in range(0, len(MOVE_OPTIONS), 2):
         rows.append([
-            InlineKeyboardButton(t(lang, key), callback_data=f"mv_{reminder_id}_{mins}")
+            InlineKeyboardButton(t(key), callback_data=f"mv_{reminder_id}_{mins}")
             for key, mins in MOVE_OPTIONS[i:i + 2]
         ])
-    rows.append([InlineKeyboardButton(t(lang, 'btn_back'), callback_data="back_list")])
+    rows.append([InlineKeyboardButton(t('btn_back'), callback_data="back_list")])
     return InlineKeyboardMarkup(rows)
 
 _HANDLED_TAPS: dict[tuple, float] = {}
@@ -338,35 +305,35 @@ def recover_snooze_info(message):
         return None
     return {"message": shown, "chat_id": message.chat_id}
 
-def build_notes_message(notes, lang: str, page: int = 0):
+def build_notes_message(notes, page: int = 0):
     total = len(notes)
-    nav, pages = _page_nav(page, total, "npage_", lang, NOTES_PAGE_SIZE)
+    nav, pages = _page_nav(page, total, "npage_", NOTES_PAGE_SIZE)
     page = max(0, min(page, pages - 1))
-    nav, pages = _page_nav(page, total, "npage_", lang, NOTES_PAGE_SIZE)
+    nav, pages = _page_nav(page, total, "npage_", NOTES_PAGE_SIZE)
     chunk = notes[page * NOTES_PAGE_SIZE:(page + 1) * NOTES_PAGE_SIZE]
 
-    lines = [t(lang, 'notes_header')]
+    lines = [t('notes_header')]
     buttons = []
     for offset, n in enumerate(chunk):
         num = page * NOTES_PAGE_SIZE + offset + 1
         lines.append(f"{num}. {html.escape(n['text'])}")
-        buttons.append([InlineKeyboardButton(t(lang, 'btn_delete_n', n=num),
+        buttons.append([InlineKeyboardButton(t('btn_delete_n', n=num),
                                              callback_data=f"delnote_{n['id']}")])
     if nav:
         buttons.append(nav)
-    buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
+    buttons.append([InlineKeyboardButton(t('btn_close'), callback_data="close")])
     if pages > 1:
         lines.append("")
-        lines.append(t(lang, 'page_of', page=page + 1, pages=pages, total=total))
+        lines.append(t('page_of', page=page + 1, pages=pages, total=total))
     return _fit(lines), InlineKeyboardMarkup(buttons)
 
-async def show_notes(update: Update, user_id: int, lang: str):
+async def show_notes(update: Update, user_id: int):
     notes = db.get_notes(user_id)
-    kb = get_keyboard(lang)
+    kb = get_keyboard()
     if not notes:
-        await update.message.reply_text(t(lang, 'no_notes'), reply_markup=kb)
+        await update.message.reply_text(t('no_notes'), reply_markup=kb)
         return
-    text, keyboard = build_notes_message(notes, lang)
+    text, keyboard = build_notes_message(notes)
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 async def _blocked(update: Update) -> bool:
@@ -383,23 +350,22 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_new = db.register_user(user.id, user.username or "", user.first_name or "")
 
     user_row = db.get_user(user.id)
-    lang = get_lang(user_row)
     tz_set = user_row and user_row["timezone"] != "UTC"
 
     if is_new or not tz_set:
         context.user_data["awaiting_city"] = True
-        await update.message.reply_text(t(lang, 'welcome_new', name=user.first_name))
+        await update.message.reply_text(t('welcome_new', name=user.first_name))
         return
 
     await update.message.reply_text(
-        t(lang, 'welcome_back', name=user.first_name),
-        reply_markup=get_keyboard(lang),
+        t('welcome_back', name=user.first_name),
+        reply_markup=get_keyboard(),
     )
 
-async def _send_welcome(update: Update, lang: str):
+async def _send_welcome(update: Update):
     await update.message.reply_text(
-        t(lang, 'welcome_features'),
-        reply_markup=get_keyboard(lang),
+        t('welcome_features'),
+        reply_markup=get_keyboard(),
     )
 
 async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -407,33 +373,29 @@ async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _blocked(update):
         return
     db.register_user(user.id, user.username or "", user.first_name or "")
-    user_row = db.get_user(user.id)
-    lang = get_lang(user_row)
     context.user_data["awaiting_city"] = True
-    await update.message.reply_text(t(lang, 'awaiting_city'))
+    await update.message.reply_text(t('awaiting_city'))
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if await _blocked(update):
         return
     db.register_user(user.id, user.username or "", user.first_name or "")
-    user_row = db.get_user(user.id)
-    lang = get_lang(user_row)
     stats = db.get_user_stats(user.id)
     await update.message.reply_text(
-        t(lang, 'stats', total=stats['total_created'], active=stats['active']),
-        parse_mode="HTML", reply_markup=get_keyboard(lang)
+        t('stats', total=stats['total_created'], active=stats['active']),
+        parse_mode="HTML", reply_markup=get_keyboard()
     )
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await cmd_start(update, context)
 
-async def show_reminders(update: Update, user_id: int, lang: str, tz_name: str = None):
+async def show_reminders(update: Update, user_id: int, tz_name: str = None):
     reminders = await _run(db.get_reminders, user_id)
     if not reminders:
-        await update.message.reply_text(t(lang, 'no_reminders'), reply_markup=get_keyboard(lang))
+        await update.message.reply_text(t('no_reminders'), reply_markup=get_keyboard())
         return
-    text, keyboard = build_reminders_message(reminders, user_id, lang, tz_name)
+    text, keyboard = build_reminders_message(reminders, user_id, tz_name)
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -448,7 +410,6 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
 
     user_row = await _run(db.get_user, query.from_user.id)
-    lang = get_lang(user_row)
 
     if user_row and user_row["is_banned"]:
         return
@@ -458,35 +419,22 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if query.data.startswith("rpage_"):
             rows = await _run(db.get_reminders, query.from_user.id)
             if not rows:
-                await query.edit_message_text(t(lang, 'no_reminders'))
+                await query.edit_message_text(t('no_reminders'))
                 return
-            text, keyboard = build_reminders_message(
-                rows, query.from_user.id, lang,
-                user_row["timezone"] if user_row else None, page)
+            text, keyboard = build_reminders_message(rows, query.from_user.id, user_row["timezone"] if user_row else None, page)
         else:
             rows = await _run(db.get_notes, query.from_user.id)
             if not rows:
-                await query.edit_message_text(t(lang, 'no_notes'))
+                await query.edit_message_text(t('no_notes'))
                 return
-            text, keyboard = build_notes_message(rows, lang, page)
+            text, keyboard = build_notes_message(rows, page)
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         return
 
-    # lang switch
-    if query.data.startswith("lang_"):
-        new_lang = query.data[5:]
-        await _run(db.update_language, query.from_user.id, new_lang)
-        await query.edit_message_text(t(new_lang, 'lang_changed'))
-        await context.bot.send_message(
-            query.message.chat_id,
-            t(new_lang, 'welcome_back', name=query.from_user.first_name or ""),
-            reply_markup=get_keyboard(new_lang),
-        )
-        return
 
     # timezone change
     if query.data == "settings_tz":
-        await query.edit_message_text(t(lang, 'settings_tz_prompt'))
+        await query.edit_message_text(t('settings_tz_prompt'))
         context.user_data["awaiting_city"] = True
         return
 
@@ -505,10 +453,10 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         for r in reminders:
             sched.remove_job(r["id"], r["type"])
             await _run(db.delete_reminder, r["id"], query.from_user.id)
-        await query.edit_message_text(t(lang, 'all_deleted', count=len(reminders)))
+        await query.edit_message_text(t('all_deleted', count=len(reminders)))
         return
     if query.data == "delall_no":
-        await query.edit_message_text(t(lang, 'delete_cancelled'))
+        await query.edit_message_text(t('delete_cancelled'))
         return
 
     tz_name = user_row["timezone"] if user_row else None
@@ -518,12 +466,12 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         rid = int(query.data[5:])
         target = await _run(db.get_reminder, rid, query.from_user.id)
         if not target:
-            await query.edit_message_text(t(lang, 'already_deleted'))
+            await query.edit_message_text(t('already_deleted'))
             return
         prompt = 'shift_prompt' if target["type"] == "recurring" else 'move_prompt'
         await query.edit_message_text(
-            t(lang, prompt, msg=target["message"]),
-            reply_markup=build_move_menu(rid, lang),
+            t(prompt, msg=target["message"]),
+            reply_markup=build_move_menu(rid),
         )
         return
 
@@ -532,10 +480,10 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         rid, minutes = int(rid_str), int(mins_str)
         target = await _run(db.get_reminder, rid, query.from_user.id)
         if not target:
-            await query.edit_message_text(t(lang, 'already_deleted'))
+            await query.edit_message_text(t('already_deleted'))
             return
         if target.get("days_of_week"):
-            await query.edit_message_text(t(lang, 'move_unsupported'))
+            await query.edit_message_text(t('move_unsupported'))
             return
         recurring = target["type"] == "recurring" and target.get("interval_seconds")
         if recurring:
@@ -560,8 +508,8 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             sched.add_once_job(context.bot, rid, target["chat_id"], target["message"], new_fire)
         dt = _local_dt(new_fire, query.from_user.id, tz_name)
         await query.edit_message_text(
-            t(lang, 'shifted' if recurring else 'moved',
-              msg=target['message'], time=_fmt_datetime(dt, lang))
+            t('shifted' if recurring else 'moved',
+              msg=target['message'], time=_fmt_datetime(dt))
         )
         return
 
@@ -570,19 +518,19 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         rid = int(query.data[5:])
         target = await _run(db.get_reminder, rid, query.from_user.id)
         if not target:
-            await query.edit_message_text(t(lang, 'already_deleted'))
+            await query.edit_message_text(t('already_deleted'))
             return
         sched.remove_job(rid, target["type"])
         await _run(db.delete_reminder, rid, query.from_user.id)
-        await query.edit_message_text(t(lang, 'deleted', msg=target['message']))
+        await query.edit_message_text(t('deleted', msg=target['message']))
         return
 
     if query.data == "back_list":
         reminders = await _run(db.get_reminders, query.from_user.id)
         if not reminders:
-            await query.edit_message_text(t(lang, 'no_reminders'))
+            await query.edit_message_text(t('no_reminders'))
             return
-        text, keyboard = build_reminders_message(reminders, query.from_user.id, lang, tz_name)
+        text, keyboard = build_reminders_message(reminders, query.from_user.id, tz_name)
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         return
 
@@ -606,7 +554,7 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             sched.add_once_job(context.bot, new_id, info["chat_id"], info["message"], new_fire)
             sched.PENDING_SNOOZE.pop(reminder_id, None)
             dt = _local_dt(new_fire, query.from_user.id, user_row["timezone"] if user_row else None)
-            await query.edit_message_text(t(lang, 'snoozed', msg=info['message'], time=_fmt_time(dt, lang)))
+            await query.edit_message_text(t('snoozed', msg=info['message'], time=_fmt_time(dt)))
         else:
             await query.edit_message_reply_markup(reply_markup=None)
         return
@@ -623,10 +571,10 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         db.delete_note(note_id, query.from_user.id)
         notes = db.get_notes(query.from_user.id)
         if notes:
-            text, keyboard = build_notes_message(notes, lang)
+            text, keyboard = build_notes_message(notes)
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         else:
-            await query.edit_message_text(t(lang, 'notes_all_deleted'))
+            await query.edit_message_text(t('notes_all_deleted'))
         return
 
     if not query.data.startswith("del_"):
@@ -644,12 +592,12 @@ async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         db.delete_reminder(rid, user_id)
         remaining = db.get_reminders(user_id)
         if remaining:
-            text, keyboard = build_reminders_message(remaining, user_id, lang, user_row["timezone"] if user_row else None)
+            text, keyboard = build_reminders_message(remaining, user_id, user_row["timezone"] if user_row else None)
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         else:
-            await query.edit_message_text(t(lang, 'deleted', msg=target['message']))
+            await query.edit_message_text(t('deleted', msg=target['message']))
     else:
-        await query.edit_message_text(t(lang, 'already_deleted'))
+        await query.edit_message_text(t('already_deleted'))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _text: str = None):
     user = update.effective_user
@@ -660,8 +608,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             return
         await _run(db.register_user, user.id, user.username or "", user.first_name or "")
         user_row = await _run(db.get_user, user.id)
-    lang = get_lang(user_row)
-    kb = get_keyboard(lang)
+    kb = get_keyboard()
 
     if user_row and user_row["is_banned"]:
         return
@@ -673,7 +620,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             # прислали напоминание вместо города — не держим человека в этом шаге
             context.user_data.pop("awaiting_city", None)
         else:
-            await update.message.reply_text(t(lang, 'city_searching'))
+            await update.message.reply_text(t('city_searching'))
             tz, display = await _run(city_tz.city_to_timezone, city_input)
             if tz:
                 old_tz = user_row["timezone"] if user_row else "UTC"
@@ -681,12 +628,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
                 context.user_data.pop("awaiting_city", None)
                 user_row = await _run(db.get_user, user.id)
                 moved = await _run(sched.reschedule_user, context.bot, user.id, old_tz, tz)
-                note = "\n\n" + t(lang, 'tz_moved', n=moved) if moved else ""
-                await update.message.reply_text(t(lang, 'city_set', display=display) + note, reply_markup=kb)
+                note = "\n\n" + t('tz_moved', n=moved) if moved else ""
+                await update.message.reply_text(t('city_set', display=display) + note, reply_markup=kb)
                 if old_tz in (None, "UTC"):
-                    await _send_welcome(update, lang)
+                    await _send_welcome(update)
             else:
-                await update.message.reply_text(t(lang, 'city_not_found', city=city_input))
+                await update.message.reply_text(t('city_not_found', city=city_input))
             return
 
     # flood check
@@ -694,49 +641,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         allowed, reason = middleware.check_message(user.id, user_row)
         if not allowed:
             if reason == "flood":
-                await update.message.reply_text(t(lang, 'flood'), reply_markup=kb)
+                await update.message.reply_text(t('flood'), reply_markup=kb)
             return
 
     text = _text if _text is not None else update.message.text.strip()
     lower = text.lower()
 
-    # AM/PM reply
-    _is_ampm_reply = bool(re.match(r'^\s*(am|pm)(\s+\w{0,15})?\s*$', lower, re.IGNORECASE))
-    if _is_ampm_reply or user.id in PENDING_AMPM:
-        m_ap = _AMPM_REPLY.search(lower)
-        if m_ap:
-            if user.id in PENDING_AMPM:
-                original = PENDING_AMPM.pop(user.id)
-                suffix = m_ap.group(1).upper()
-                fixed = re.sub(r'(\bat\s+\d{1,2})\b(?!\s*(?:am|pm|:\d))', rf'\1 {suffix}', original, flags=re.IGNORECASE)
-                await handle_message(update, context, _text=fixed)
-            else:
-                await update.message.reply_text(
-                    "I lost your reminder after a restart — please send it again with AM or PM.\n"
-                    "E.g.: «remind me at 8 PM to stretch»",
-                    reply_markup=kb
-                )
-            return
 
-    # lang switch
-    if INTENT_LANG_CHANGE.search(lower):
-        inline_kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
-            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
-        ]])
-        await update.message.reply_text(t(lang, 'lang_ask'), reply_markup=inline_kb)
-        return
 
     # settings
     if lower.strip() in ("⚙️ настройки", "⚙️ settings"):
         inline = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
-                InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
-            ],
-            [InlineKeyboardButton("🌍 " + ("Сменить город" if lang == "ru" else "Change city"), callback_data="settings_tz")],
+            [InlineKeyboardButton("🌍 Сменить город", callback_data="settings_tz")],
         ])
-        await update.message.reply_text(t(lang, 'settings_title'), parse_mode="HTML", reply_markup=inline)
+        await update.message.reply_text(t('settings_title'), parse_mode="HTML", reply_markup=inline)
         return
 
     # stats
@@ -746,7 +664,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
 
     # show notes
     if any(kw in lower for kw in INTENT_NOTES_LIST):
-        await show_notes(update, user.id, lang)
+        await show_notes(update, user.id)
         return
 
     # save note
@@ -754,13 +672,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     if m_note_add:
         note_text = m_note_add.group(1).strip()
         if len(note_text) > 500:
-            await update.message.reply_text(t(lang, 'note_too_long'), reply_markup=kb)
+            await update.message.reply_text(t('note_too_long'), reply_markup=kb)
             return
         if await _run(db.get_notes_count, user.id) >= config.MAX_NOTES:
-            await update.message.reply_text(t(lang, 'limit_notes', n=config.MAX_NOTES), reply_markup=kb)
+            await update.message.reply_text(t('limit_notes', n=config.MAX_NOTES), reply_markup=kb)
             return
         db.add_note(user.id, note_text)
-        await update.message.reply_text(t(lang, 'note_saved', text=note_text), reply_markup=kb)
+        await update.message.reply_text(t('note_saved', text=note_text), reply_markup=kb)
         return
 
     # delete note text
@@ -770,12 +688,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         notes = db.get_notes(user.id)
         matched = [n for n in notes if query_text in n["text"].lower()]
         if not matched:
-            await update.message.reply_text(t(lang, 'note_not_found', query=query_text), reply_markup=kb)
+            await update.message.reply_text(t('note_not_found', query=query_text), reply_markup=kb)
         elif len(matched) == 1:
             db.delete_note(matched[0]["id"], user.id)
-            await update.message.reply_text(t(lang, 'note_deleted', text=matched[0]['text']), reply_markup=kb)
+            await update.message.reply_text(t('note_deleted', text=matched[0]['text']), reply_markup=kb)
         else:
-            lines = [t(lang, 'note_clarify')]
+            lines = [t('note_clarify')]
             for n in matched:
                 lines.append(f"• {n['text']}")
             await update.message.reply_text("\n".join(lines), reply_markup=kb)
@@ -788,49 +706,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         idx = ORDINAL_TO_INDEX.get(ordinal_word)
         reminders = db.get_reminders(user.id)
         if not reminders:
-            await update.message.reply_text(t(lang, 'none_to_delete'), reply_markup=kb)
+            await update.message.reply_text(t('none_to_delete'), reply_markup=kb)
             return
         try:
             target = reminders[idx]
         except IndexError:
-            await update.message.reply_text(t(lang, 'ordinal_none'), reply_markup=kb)
+            await update.message.reply_text(t('ordinal_none'), reply_markup=kb)
             return
         sched.remove_job(target["id"], target["type"])
         db.delete_reminder(target["id"], user.id)
-        await update.message.reply_text(t(lang, 'deleted', msg=target['message']), reply_markup=kb)
+        await update.message.reply_text(t('deleted', msg=target['message']), reply_markup=kb)
         return
 
     # delete all
     if any(kw in lower for kw in INTENT_DELETE_ALL):
         reminders = db.get_reminders(user.id)
         if not reminders:
-            await update.message.reply_text(t(lang, 'none_to_delete'), reply_markup=kb)
+            await update.message.reply_text(t('none_to_delete'), reply_markup=kb)
             return
         confirm_kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton(t(lang, 'btn_yes'), callback_data="delall_yes"),
-            InlineKeyboardButton(t(lang, 'btn_no'), callback_data="delall_no"),
+            InlineKeyboardButton(t('btn_yes'), callback_data="delall_yes"),
+            InlineKeyboardButton(t('btn_no'), callback_data="delall_no"),
         ]])
         await update.message.reply_text(
-            t(lang, 'confirm_delete_all', n=len(reminders)),
+            t('confirm_delete_all', n=len(reminders)),
             reply_markup=confirm_kb,
         )
         return
 
-    # delete last EN
-    if INTENT_DELETE_LAST_EN.search(lower):
-        reminders = db.get_reminders(user.id)
-        if not reminders:
-            await update.message.reply_text(t(lang, 'none_to_delete'), reply_markup=kb)
-            return
-        last = reminders[-1]
-        sched.remove_job(last["id"], last["type"])
-        db.delete_reminder(last["id"], user.id)
-        await update.message.reply_text(t(lang, 'last_deleted', msg=last['message']), reply_markup=kb)
-        return
 
     # list reminders
     if any(kw in lower for kw in INTENT_LIST):
-        await show_reminders(update, user.id, lang, user_row["timezone"] if user_row else None)
+        await show_reminders(update, user.id, user_row["timezone"] if user_row else None)
         return
 
     # delete by number
@@ -842,9 +749,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         if target:
             sched.remove_job(rid, target["type"])
             db.delete_reminder(rid, user.id)
-            await update.message.reply_text(t(lang, 'deleted', msg=target['message']), reply_markup=kb)
+            await update.message.reply_text(t('deleted', msg=target['message']), reply_markup=kb)
         else:
-            await update.message.reply_text(t(lang, 'not_found_id', id=rid), reply_markup=kb)
+            await update.message.reply_text(t('not_found_id', id=rid), reply_markup=kb)
         return
 
     # greeting
@@ -864,13 +771,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             "Йоу! Ставим напоминание?",
             "Привет-привет 👋 Пиши что напомнить",
         ]
-        replies_en = [
-            "Hey! What should I remind you about? 👇",
-            "Hi! What do you need a reminder for?",
-            "Hello! Just say what to remind you and when 🕐",
-            "Hey there 👋 What's the reminder?",
-        ]
-        replies = replies_en if lang == 'en' else replies_ru
+        replies = replies_ru
         await update.message.reply_text(random.choice(replies), reply_markup=kb)
         return
 
@@ -888,7 +789,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     # parse reminder
     user_tz = user_row["timezone"] if user_row else None
     # use EN format if message is in EN
-    reply_lang = 'en' if reminder_parser._detect_lang(text) == 'en' else lang
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
     expanded = []
@@ -915,12 +815,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     if not results:
         parsed = reminder_parser.parse(lines[0] if lines else text, user_tz=user_tz)
         error_msg = parsed["error"]
-        if error_msg and "AM or PM" in error_msg:
-            PENDING_AMPM[user.id] = lines[0] if lines else text
         await update.message.reply_text(error_msg, reply_markup=kb)
         return
 
-    ok, err = middleware.check_message_length(text, lang)
+    ok, err = middleware.check_message_length(text)
     if not ok:
         await update.message.reply_text(err, reply_markup=kb)
         return
@@ -931,7 +829,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     movable_ids = set()
 
     for _, parsed in results:
-        ok, err = middleware.check_new_reminder(user.id, lang)
+        ok, err = middleware.check_new_reminder(user.id)
         if not ok:
             # часть напоминаний уже создана — человек должен об этом узнать
             tail = (chr(10).join(reply_lines) + " ✅" + chr(10) + chr(10)) if reply_lines else ""
@@ -951,14 +849,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         until_str = ""
         if parsed.get("until"):
             until_dt = _local_dt(parsed["until"], user.id, user_tz)
-            until_str = t(reply_lang, 'until_suffix', date=until_dt.strftime('%d.%m'))
+            until_str = t('until_suffix', date=until_dt.strftime('%d.%m'))
 
         if parsed.get("days_of_week"):
             sched.add_cron_job(bot, reminder_id, update.effective_chat.id, parsed["message"],
                                parsed["days_of_week"], parsed["at_time"], user_tz, parsed.get("until"))
-            days_str = t(reply_lang, 'days_weekdays' if parsed["days_of_week"] == "mon-fri" else 'days_weekend')
+            days_str = t('days_weekdays' if parsed["days_of_week"] == "mon-fri" else 'days_weekend')
             reply_lines.append(
-                t(reply_lang, 'confirm_days', days=days_str, time=parsed["at_time"], msg=parsed['message']) + until_str
+                t('confirm_days', days=days_str, time=parsed["at_time"], msg=parsed['message']) + until_str
             )
 
         elif parsed["type"] == "recurring":
@@ -968,21 +866,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
             sched.add_recurring_job(bot, reminder_id, update.effective_chat.id, parsed["message"],
                                     parsed["interval_seconds"], start_date=start_date,
                                     until=parsed.get("until"))
-            interval_str = format_interval(parsed["interval_seconds"], reply_lang)
+            interval_str = format_interval(parsed["interval_seconds"])
             if start_date:
                 dt = _local_dt(parsed["next_fire"], user.id, user_tz)
-                reply_lines.append(t(reply_lang, 'confirm_recurring_from', interval=interval_str, time=_fmt_time(dt, reply_lang), msg=parsed['message']) + until_str)
+                reply_lines.append(t('confirm_recurring_from', interval=interval_str, time=_fmt_time(dt), msg=parsed['message']) + until_str)
             else:
-                reply_lines.append(t(reply_lang, 'confirm_recurring', interval=interval_str, msg=parsed['message']) + until_str)
+                reply_lines.append(t('confirm_recurring', interval=interval_str, msg=parsed['message']) + until_str)
 
         elif parsed["type"] == "once":
             sched.add_once_job(bot, reminder_id, update.effective_chat.id, parsed["message"], parsed["next_fire"])
             dt = _local_dt(parsed["next_fire"], user.id, user_tz)
-            reply_lines.append(t(reply_lang, 'confirm_once', time=_fmt_datetime(dt, reply_lang), msg=parsed['message']))
+            reply_lines.append(t('confirm_once', time=_fmt_datetime(dt), msg=parsed['message']))
 
     tz_warning = ""
     if user_row and user_row.get("timezone", "UTC") == "UTC":
-        tz_warning = "\n\n" + t(lang, 'tz_missing')
+        tz_warning = "\n\n" + t('tz_missing')
         context.user_data["awaiting_city"] = True
 
     rows = []
@@ -991,9 +889,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         suffix = f" {n}" if len(created_ids) > 1 else ""
         row = []
         if rid in movable_ids:
-            row.append(InlineKeyboardButton(t(lang, 'btn_move_n', n="").strip() + suffix,
+            row.append(InlineKeyboardButton(t('btn_move_n', n="").strip() + suffix,
                                             callback_data=f"move_{rid}"))
-        row.append(InlineKeyboardButton(t(lang, 'btn_delete_n', n="").strip() + suffix,
+        row.append(InlineKeyboardButton(t('btn_delete_n', n="").strip() + suffix,
                                         callback_data=f"delx_{rid}"))
         rows.append(row)
     await update.message.reply_text("\n".join(reply_lines) + " ✅" + tz_warning,
@@ -1004,7 +902,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.register_user(user.id, user.username or "", user.first_name or "")
 
     user_row = db.get_user(user.id)
-    lang = get_lang(user_row)
 
     if user_row and user_row["is_banned"]:
         return
@@ -1012,12 +909,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     allowed, reason = middleware.check_message(user.id, user_row)
     if not allowed:
         if reason == "flood":
-            await update.message.reply_text(t(lang, 'flood'), reply_markup=get_keyboard(lang))
+            await update.message.reply_text(t('flood'), reply_markup=get_keyboard())
         return
 
     voice = update.message.voice
     if voice.duration and voice.duration > 120:
-        await update.message.reply_text(t(lang, 'voice_too_long'), reply_markup=get_keyboard(lang))
+        await update.message.reply_text(t('voice_too_long'), reply_markup=get_keyboard())
         return
     file = await context.bot.get_file(voice.file_id)
     audio_bytes = await file.download_as_bytearray()
@@ -1027,21 +924,21 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         transcription = client.audio.transcriptions.create(
             file=("voice.ogg", bytes(audio_bytes)),
             model="whisper-large-v3",
-            language=lang,
+            language="ru",
         )
         text = transcription.text.strip()
     except Exception as e:
         logger.error(f"Groq transcription error: {e}")
-        await update.message.reply_text(t(lang, 'voice_fail'), reply_markup=get_keyboard(lang))
+        await update.message.reply_text(t('voice_fail'), reply_markup=get_keyboard())
         return
 
     if not text:
-        await update.message.reply_text(t(lang, 'voice_fail'), reply_markup=get_keyboard(lang))
+        await update.message.reply_text(t('voice_fail'), reply_markup=get_keyboard())
         return
 
-    ok, err = middleware.check_message_length(text, lang)
+    ok, err = middleware.check_message_length(text)
     if not ok:
-        await update.message.reply_text(err, reply_markup=get_keyboard(lang))
+        await update.message.reply_text(err, reply_markup=get_keyboard())
         return
 
     await handle_message(update, context, _text=text)
@@ -1077,10 +974,8 @@ def main():
         # обрывы связи с телеграмом лечатся ретраем, дёргать юзера незачем
         if not chat or isinstance(context.error, NetworkError):
             return
-        code = (update.effective_user.language_code or "") if update.effective_user else ""
-        lang = 'en' if code.startswith('en') else 'ru'
         try:
-            await context.bot.send_message(chat_id=chat.id, text=t(lang, 'error_generic'))
+            await context.bot.send_message(chat_id=chat.id, text=t('error_generic'))
         except Exception:
             pass
 

@@ -15,10 +15,6 @@ import db
 from translations import t
 
 
-def _user_lang(user_id: int) -> str:
-    u = db.get_user(user_id)
-    return (u.get('language') or 'ru') if u else 'ru'
-
 def _user_tz(user_id: int) -> str | None:
     u = db.get_user(user_id)
     return u.get('timezone') if u else None
@@ -36,21 +32,20 @@ def _job_id_recurring(reminder_id: int) -> str:
     return f"recurring_{reminder_id}"
 
 async def _send_once(bot, chat_id: int, message: str, reminder_id: int, user_id: int = None):
-    lang = await asyncio.to_thread(_user_lang, user_id if user_id is not None else chat_id)
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(t(lang, 'snooze_15m'), callback_data=f"snooze_{reminder_id}_15"),
-            InlineKeyboardButton(t(lang, 'snooze_30m'), callback_data=f"snooze_{reminder_id}_30"),
+            InlineKeyboardButton(t('snooze_15m'), callback_data=f"snooze_{reminder_id}_15"),
+            InlineKeyboardButton(t('snooze_30m'), callback_data=f"snooze_{reminder_id}_30"),
         ],
         [
-            InlineKeyboardButton(t(lang, 'snooze_1h'), callback_data=f"snooze_{reminder_id}_60"),
-            InlineKeyboardButton(t(lang, 'snooze_3h'), callback_data=f"snooze_{reminder_id}_180"),
+            InlineKeyboardButton(t('snooze_1h'), callback_data=f"snooze_{reminder_id}_60"),
+            InlineKeyboardButton(t('snooze_3h'), callback_data=f"snooze_{reminder_id}_180"),
         ],
         [
-            InlineKeyboardButton(t(lang, 'snooze_6h'), callback_data=f"snooze_{reminder_id}_360"),
-            InlineKeyboardButton(t(lang, 'snooze_tomorrow'), callback_data=f"snooze_{reminder_id}_1440"),
+            InlineKeyboardButton(t('snooze_6h'), callback_data=f"snooze_{reminder_id}_360"),
+            InlineKeyboardButton(t('snooze_tomorrow'), callback_data=f"snooze_{reminder_id}_1440"),
         ],
-        [InlineKeyboardButton(t(lang, 'btn_done'), callback_data=f"dismiss_{reminder_id}")],
+        [InlineKeyboardButton(t('btn_done'), callback_data=f"dismiss_{reminder_id}")],
     ])
     PENDING_SNOOZE[reminder_id] = {"message": message, "chat_id": chat_id}
     try:
@@ -243,8 +238,7 @@ def restore_jobs(bot):
                 if row["next_fire"] and row["next_fire"] > time.time():
                     add_once_job(bot, row["id"], row["chat_id"], row["message"], row["next_fire"], row["user_id"])
                 else:
-                    lang = _user_lang(row["user_id"])
-                    overdue_message = t(lang, 'overdue', msg=row['message'])
+                    overdue_message = t('overdue', msg=row['message'])
                     overdue_offset = min(overdue_offset + 2, 600)
                     add_once_job(bot, row["id"], row["chat_id"], overdue_message,
                                  time.time() + 5 + overdue_offset, row["user_id"])

@@ -22,17 +22,17 @@ def check_message(user_id: int, user=None) -> tuple[bool, str | None]:
 
     return True, None
 
-def check_new_reminder(user_id: int, lang: str = "ru") -> tuple[bool, str | None]:
+def check_new_reminder(user_id: int) -> tuple[bool, str | None]:
     active = db.get_active_reminders_count(user_id)
     if active >= config.MAX_ACTIVE_REMINDERS:
-        return False, t(lang, 'limit_active', n=config.MAX_ACTIVE_REMINDERS)
+        return False, t('limit_active', n=config.MAX_ACTIVE_REMINDERS)
 
     if not db.take_daily_slot(user_id, config.MAX_REMINDERS_PER_DAY):
-        return False, t(lang, 'limit_daily', n=config.MAX_REMINDERS_PER_DAY)
+        return False, t('limit_daily', n=config.MAX_REMINDERS_PER_DAY)
 
     return True, None
 
-def check_message_length(text: str, lang: str = "ru") -> tuple[bool, str | None]:
+def check_message_length(text: str) -> tuple[bool, str | None]:
     if len(text) > config.MAX_MSG_LENGTH:
-        return False, t(lang, 'msg_too_long', n=config.MAX_MSG_LENGTH)
+        return False, t('msg_too_long', n=config.MAX_MSG_LENGTH)
     return True, None

@@ -36,7 +36,7 @@ def all_labels(markup):
 
 
 def case_notes_escaped():
-    text, _ = bot.build_notes_message([{"id": 1, "text": "5 < 10 & <b>жирный</b>"}], "ru")
+    text, _ = bot.build_notes_message([{"id": 1, "text": "5 < 10 & <b>жирный</b>"}])
     errors = []
     if "&lt;" not in text or "&amp;" not in text:
         errors.append("спецсимволы не экранированы, телеграм отвергнет сообщение")
@@ -48,7 +48,7 @@ def case_notes_escaped():
 def case_once_row_movable():
     r = {"id": 7, "type": "once", "message": "вынести мусор",
          "next_fire": time.time() + 3600, "interval_seconds": None}
-    text, markup = bot.build_reminders_message([r], 1, "ru", MSK)
+    text, markup = bot.build_reminders_message([r], 1, MSK)
     cbs = all_callbacks(markup)
     errors = []
     if "move_7" not in cbs:
@@ -72,14 +72,9 @@ def case_interval_wording():
     }
     errors = []
     for seconds, want in checks.items():
-        got = bot.format_interval(seconds, "ru")
+        got = bot.format_interval(seconds)
         if got != want:
             errors.append(f"{seconds}s: want={want!r} got={got!r}")
-    en = {86400: "every day", 2 * 86400: "every 2 days", 3600: "every hour"}
-    for seconds, want in en.items():
-        got = bot.format_interval(seconds, "en")
-        if got != want:
-            errors.append(f"{seconds}s (en): want={want!r} got={got!r}")
     return errors
 
 
@@ -91,7 +86,7 @@ def case_list_text_not_truncated():
         {"id": 2, "type": "once", "message": long_msg, "next_fire": time.time() + 600,
          "interval_seconds": None},
     ]
-    text, markup = bot.build_reminders_message(rows, 1, "ru", MSK)
+    text, markup = bot.build_reminders_message(rows, 1, MSK)
     errors = []
     if text.count(long_msg) != 2:
         errors.append("текст напоминания обрезан или отсутствует в сообщении")
@@ -110,7 +105,7 @@ def case_list_text_not_truncated():
 def case_weekday_row_not_movable():
     r = {"id": 8, "type": "recurring", "message": "зарядка", "next_fire": None,
          "interval_seconds": None, "days_of_week": "mon-fri", "at_time": "09:00"}
-    text, markup = bot.build_reminders_message([r], 1, "ru", MSK)
+    text, markup = bot.build_reminders_message([r], 1, MSK)
     cbs = all_callbacks(markup)
     errors = []
     if "move_8" in cbs:
@@ -200,7 +195,7 @@ def case_wall_clock_reminder_moves_with_city():
 
 
 def case_move_menu_offsets():
-    markup = bot.build_move_menu(5, "ru")
+    markup = bot.build_move_menu(5)
     cbs = all_callbacks(markup)
     expected = [f"mv_5_{m}" for m in (15, 30, 60, 180, 360, 1440)]
     missing = [c for c in expected if c not in cbs]
@@ -412,7 +407,7 @@ def case_admin_never_shows_text():
 def case_long_list_fits_telegram():
     rows = [{"id": i, "type": "once", "message": "щ" * 200, "next_fire": time.time() + 600,
              "interval_seconds": None} for i in range(1, 51)]
-    text, markup = bot.build_reminders_message(rows, 1, "ru", MSK)
+    text, markup = bot.build_reminders_message(rows, 1, MSK)
     buttons = sum(len(r) for r in markup.inline_keyboard)
     errors = []
     if len(text) > 4096:
@@ -426,7 +421,7 @@ def case_long_list_fits_telegram():
 
 def case_long_notes_fit_telegram():
     notes = [{"id": i, "text": "щ" * 500} for i in range(1, 60)]
-    text, markup = bot.build_notes_message(notes, "ru")
+    text, markup = bot.build_notes_message(notes)
     errors = []
     if len(text) > 4096:
         errors.append(f"сообщение из {len(text)} символов телеграм отклонит")
@@ -438,8 +433,8 @@ def case_long_notes_fit_telegram():
 def case_pagination_navigation():
     rows = [{"id": i, "type": "once", "message": f"дело {i}", "next_fire": time.time() + 600,
              "interval_seconds": None} for i in range(1, 30)]
-    _, first = bot.build_reminders_message(rows, 1, "ru", MSK, page=0)
-    text2, second = bot.build_reminders_message(rows, 1, "ru", MSK, page=1)
+    _, first = bot.build_reminders_message(rows, 1, MSK, page=0)
+    text2, second = bot.build_reminders_message(rows, 1, MSK, page=1)
     cb1, cb2 = all_callbacks(first), all_callbacks(second)
     errors = []
     if "rpage_1" not in cb1:
@@ -450,7 +445,7 @@ def case_pagination_navigation():
         errors.append("предложен переход перед первой страницей")
     if "9. " not in text2:
         errors.append("вторая страница начинается не с девятого")
-    out_text, _ = bot.build_reminders_message(rows, 1, "ru", MSK, page=999)
+    out_text, _ = bot.build_reminders_message(rows, 1, MSK, page=999)
     if "дело 29" not in out_text:
         errors.append("запрос несуществующей страницы не прижался к последней")
     return errors
@@ -483,8 +478,8 @@ def case_year_shown_only_when_needed():
     from datetime import datetime as dt
     tz = ZoneInfo(MSK)
     now = dt.now(tz)
-    same = bot._fmt_datetime(now.replace(month=12, day=1), "ru")
-    other = bot._fmt_datetime(now.replace(year=now.year + 1, month=1, day=5), "ru")
+    same = bot._fmt_datetime(now.replace(month=12, day=1))
+    other = bot._fmt_datetime(now.replace(year=now.year + 1, month=1, day=5))
     errors = []
     if len(same.split(".")) > 2:
         errors.append(f"в этом году год лишний: {same}")
