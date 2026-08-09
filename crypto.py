@@ -8,14 +8,25 @@ logger = logging.getLogger(__name__)
 
 _fernet = None
 
-if config.ENCRYPTION_KEY:
+def _clean_key(raw: str) -> str:
+    key = raw.strip().strip('"\'')
+    # в переменную нередко вставляют строку из .env целиком
+    if key.upper().startswith("ENCRYPTION_KEY="):
+        key = key.split("=", 1)[1].strip().strip('"\'')
+    return key
+
+_key = _clean_key(config.ENCRYPTION_KEY)
+
+if _key:
     try:
-        _fernet = Fernet(config.ENCRYPTION_KEY.encode())
-    except Exception as e:
-        raise RuntimeError(
-            "ENCRYPTION_KEY задан неверно. Сгенерировать новый: "
-            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
-        ) from e
+        _fernet = Fernet(_key.encode())
+    except Exception:
+        # падать нельзя: бот перестанет отвечать всем из-за одной переменной
+        logger.error(
+            "ENCRYPTION_KEY задан неверно — тексты пишутся открыто. "
+            "Ожидается ключ Fernet из 44 символов, получено %d",
+            len(_key),
+        )
 else:
     logger.warning("ENCRYPTION_KEY не задан — тексты хранятся в базе открыто")
 

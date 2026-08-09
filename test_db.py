@@ -249,6 +249,21 @@ def case_legacy_plaintext_still_readable():
     return []
 
 
+def case_key_paste_mistakes():
+    good = Fernet.generate_key().decode()
+    variants = {
+        "как есть": good,
+        "строка из .env целиком": f"ENCRYPTION_KEY={good}",
+        "в кавычках": f'"{good}"',
+        "с пробелами": f"  {good}  ",
+    }
+    errors = []
+    for name, raw in variants.items():
+        if crypto._clean_key(raw) != good:
+            errors.append(f"ключ не распознан, когда вставлен {name}")
+    return errors
+
+
 def case_works_without_key():
     saved = crypto._fernet
     crypto._fernet = None
@@ -274,6 +289,7 @@ cases = [
     ("напоминание шифруется перед записью", case_reminder_stored_encrypted),
     ("заметка шифруется перед записью", case_note_stored_encrypted),
     ("старые открытые записи читаются", case_legacy_plaintext_still_readable),
+    ("кривая вставка ключа не ломает бота", case_key_paste_mistakes),
     ("без ключа бот не падает", case_works_without_key),
 ]
 
