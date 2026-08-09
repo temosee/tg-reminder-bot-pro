@@ -222,6 +222,14 @@ def restore_jobs(bot):
         logger.error(f"Не удалось прочитать напоминания при старте: {e}")
         return
     overdue_offset = 0
+    # без кэша это запрос к базе на каждое напоминание, а не на человека
+    tz_cache = {}
+
+    def tz_of(user_id):
+        if user_id not in tz_cache:
+            tz_cache[user_id] = _user_tz(user_id)
+        return tz_cache[user_id]
+
     for row in rows:
         try:
             if row.get("until") and row["until"] < time.time():
@@ -231,7 +239,7 @@ def restore_jobs(bot):
             if row.get("days_of_week"):
                 add_cron_job(bot, row["id"], row["chat_id"], row["message"],
                              row["days_of_week"], row.get("at_time"),
-                             _user_tz(row["user_id"]), row.get("until"))
+                             tz_of(row["user_id"]), row.get("until"))
                 continue
 
             if row["type"] == "once":
