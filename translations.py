@@ -9,7 +9,7 @@ STRINGS = {
             "🗒 Заметки: запомни: друг должен мне 3000₽ — сохраняю без времени\n\n"
             "Пиши как удобно — любые напоминания в любом формате."
         ),
-        'awaiting_city':   "Напиши свой город.\n\nМожно кратко: мск, спб, екб, нск, вдк.",
+        'awaiting_city':   "Напиши, пожалуйста, свой город.\n\nМожно кратко: мск, спб, екб, нск, вдк.",
         'city_searching':  "Ищу город...",
         'city_set':        "✅ Город: {display}\nВремя будет по этому городу.",
         'city_not_found':  "Не смог найти «{city}». Попробуй написать иначе — например: Москва, Питер, Новосибирск",
@@ -92,7 +92,7 @@ STRINGS = {
             "🗒 Notes: remember: friend owes me $50 — saved without a time, check whenever\n\n"
             "Write however you like — any format works."
         ),
-        'awaiting_city':   "Enter your city.\n\nShort forms work: nyc, la, sf.",
+        'awaiting_city':   "Please enter your city.\n\nShort forms work: nyc, la, sf.",
         'city_searching':  "Searching...",
         'city_set':        "✅ City: {display}\nReminders will use this city's timezone.",
         'city_not_found':  "Couldn't find «{city}». Try again — e.g.: Moscow, London, New York, Toronto",
