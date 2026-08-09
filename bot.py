@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import functools
 import html
 import logging
@@ -31,10 +32,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# потоков ровно столько же, сколько соединений в пуле, иначе часть упрётся в пустой пул
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=config.DB_POOL_SIZE)
+
 async def _run(func, *args, **kwargs):
     """run blocking call in threadpool"""
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
+    return await loop.run_in_executor(_executor, functools.partial(func, *args, **kwargs))
 
 def get_lang(user_row) -> str:
     return (user_row.get('language') or 'ru') if user_row else 'ru'
@@ -181,6 +185,13 @@ INTENT_LANG_CHANGE = re.compile(
     re.IGNORECASE
 )
 
+def _too_many_newcomers() -> bool:
+    try:
+        return db.count_new_users_since(_time.time() - 3600) >= config.MAX_NEW_USERS_PER_HOUR
+    except Exception as e:
+        logger.error(f"Не удалось посчитать новых пользователей: {e}")
+        return False
+
 def _looks_like_reminder(text: str) -> bool:
     if not text:
         return False
@@ -212,16 +223,54 @@ def _fmt_time(dt: datetime, lang: str) -> str:
     return dt.strftime('%H:%M')
 
 def _fmt_datetime(dt: datetime, lang: str) -> str:
+    year = '.%y' if dt.year != datetime.now(tz=dt.tzinfo).year else ''
     if lang == 'en':
-        return dt.strftime('%I:%M %p %d.%m').lstrip('0')
-    return dt.strftime('%H:%M %d.%m')
+        return dt.strftime(f'%I:%M %p %d.%m{year}').lstrip('0')
+    return dt.strftime(f'%H:%M %d.%m{year}')
 
-def build_reminders_message(reminders, user_id: int, lang: str, tz_name: str = None):
+PAGE_SIZE = 8
+NOTES_PAGE_SIZE = 5   # заметка до 500 символов, больше пяти в одно сообщение не влезет
+TG_TEXT_LIMIT = 4096
+
+def _fit(lines: list[str]) -> str:
+    """Собирает сообщение так, чтобы телеграм его точно принял."""
+    text = chr(10).join(lines)
+    if len(text) <= TG_TEXT_LIMIT - 96:
+        return text
+    trimmed, budget = [], TG_TEXT_LIMIT - 96
+    for line in lines:
+        if len(line) > budget:
+            trimmed.append(line[:max(0, budget - 1)] + "…")
+            break
+        trimmed.append(line)
+        budget -= len(line) + 1
+    return chr(10).join(trimmed)
+
+def _page_nav(page: int, total: int, prefix: str, lang: str, size: int = PAGE_SIZE):
+    pages = max(1, (total + size - 1) // size)
+    if pages == 1:
+        return None, pages
+    row = []
+    if page > 0:
+        row.append(InlineKeyboardButton("‹", callback_data=f"{prefix}{page - 1}"))
+    row.append(InlineKeyboardButton(f"{page + 1}/{pages}", callback_data="noop"))
+    if page < pages - 1:
+        row.append(InlineKeyboardButton("›", callback_data=f"{prefix}{page + 1}"))
+    return row, pages
+
+def build_reminders_message(reminders, user_id: int, lang: str, tz_name: str = None, page: int = 0):
     if tz_name is None:
         tz_name = str(_get_user_tz(user_id))
+    total = len(reminders)
+    nav, pages = _page_nav(page, total, "rpage_", lang)
+    page = max(0, min(page, pages - 1))
+    nav, pages = _page_nav(page, total, "rpage_", lang)
+    chunk = reminders[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+
     lines = [t(lang, 'reminders_header')]
     buttons = []
-    for n, r in enumerate(reminders, 1):
+    for offset, r in enumerate(chunk):
+        n = page * PAGE_SIZE + offset + 1
         if r.get("days_of_week"):
             days_str = t(lang, 'days_weekdays' if r["days_of_week"] == "mon-fri" else 'days_weekend')
             label = t(lang, 'label_days', days=days_str, time=r.get("at_time") or "09:00", msg=r['message'])
@@ -242,23 +291,19 @@ def build_reminders_message(reminders, user_id: int, lang: str, tz_name: str = N
             row.append(InlineKeyboardButton(t(lang, 'btn_move_n', n=n), callback_data=f"move_{r['id']}"))
         row.append(InlineKeyboardButton(t(lang, 'btn_delete_n', n=n), callback_data=f"del_{r['id']}"))
         buttons.append(row)
+    if nav:
+        buttons.append(nav)
     buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
-    return "\n".join(lines), InlineKeyboardMarkup(buttons)
+    if pages > 1:
+        lines.append("")
+        lines.append(t(lang, 'page_of', page=page + 1, pages=pages, total=total))
+    return _fit(lines), InlineKeyboardMarkup(buttons)
 
 MOVE_OPTIONS = [
     ('snooze_15m', 15), ('snooze_30m', 30),
     ('snooze_1h', 60), ('snooze_3h', 180),
     ('snooze_6h', 360), ('move_1d', 1440),
 ]
-
-def recover_snooze_info(message):
-    # после рестарта список в памяти пуст, но текст напоминания есть в самом сообщении
-    shown = (getattr(message, "text", None) or "").strip()
-    if shown.startswith("⏰"):
-        shown = shown[1:].strip()
-    if not shown:
-        return None
-    return {"message": shown, "chat_id": message.chat_id}
 
 def build_move_menu(reminder_id: int, lang: str):
     rows = []
@@ -270,14 +315,50 @@ def build_move_menu(reminder_id: int, lang: str):
     rows.append([InlineKeyboardButton(t(lang, 'btn_back'), callback_data="back_list")])
     return InlineKeyboardMarkup(rows)
 
-def build_notes_message(notes, lang: str):
+_HANDLED_TAPS: dict[tuple, float] = {}
+
+def already_handled(chat_id, message_id, data) -> bool:
+    """Второе нажатие той же кнопки (лаг сети, дрожь пальца) не должно срабатывать дважды."""
+    now = _time.time()
+    for key, ts in list(_HANDLED_TAPS.items()):
+        if now - ts > 300:
+            _HANDLED_TAPS.pop(key, None)
+    key = (chat_id, message_id, data)
+    if key in _HANDLED_TAPS:
+        return True
+    _HANDLED_TAPS[key] = now
+    return False
+
+def recover_snooze_info(message):
+    # после рестарта список в памяти пуст, но текст напоминания есть в самом сообщении
+    shown = (getattr(message, "text", None) or "").strip()
+    if shown.startswith("⏰"):
+        shown = shown[1:].strip()
+    if not shown:
+        return None
+    return {"message": shown, "chat_id": message.chat_id}
+
+def build_notes_message(notes, lang: str, page: int = 0):
+    total = len(notes)
+    nav, pages = _page_nav(page, total, "npage_", lang, NOTES_PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
+    nav, pages = _page_nav(page, total, "npage_", lang, NOTES_PAGE_SIZE)
+    chunk = notes[page * NOTES_PAGE_SIZE:(page + 1) * NOTES_PAGE_SIZE]
+
     lines = [t(lang, 'notes_header')]
     buttons = []
-    for n in notes:
-        lines.append(f"• {html.escape(n['text'])}")
-        buttons.append([InlineKeyboardButton(f"🗑 {n['text'][:40]}", callback_data=f"delnote_{n['id']}")])
+    for offset, n in enumerate(chunk):
+        num = page * NOTES_PAGE_SIZE + offset + 1
+        lines.append(f"{num}. {html.escape(n['text'])}")
+        buttons.append([InlineKeyboardButton(t(lang, 'btn_delete_n', n=num),
+                                             callback_data=f"delnote_{n['id']}")])
+    if nav:
+        buttons.append(nav)
     buttons.append([InlineKeyboardButton(t(lang, 'btn_close'), callback_data="close")])
-    return "\n".join(lines), InlineKeyboardMarkup(buttons)
+    if pages > 1:
+        lines.append("")
+        lines.append(t(lang, 'page_of', page=page + 1, pages=pages, total=total))
+    return _fit(lines), InlineKeyboardMarkup(buttons)
 
 async def show_notes(update: Update, user_id: int, lang: str):
     notes = db.get_notes(user_id)
@@ -288,8 +369,17 @@ async def show_notes(update: Update, user_id: int, lang: str):
     text, keyboard = build_notes_message(notes, lang)
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
+async def _blocked(update: Update) -> bool:
+    row = await _run(db.get_user, update.effective_user.id)
+    return bool(row and row["is_banned"])
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if await _blocked(update):
+        return
+    if not db.get_user(user.id) and _too_many_newcomers():
+        logger.warning("Достигнут предел новых пользователей в час")
+        return
     is_new = db.register_user(user.id, user.username or "", user.first_name or "")
 
     user_row = db.get_user(user.id)
@@ -314,6 +404,8 @@ async def _send_welcome(update: Update, lang: str):
 
 async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if await _blocked(update):
+        return
     db.register_user(user.id, user.username or "", user.first_name or "")
     user_row = db.get_user(user.id)
     lang = get_lang(user_row)
@@ -322,6 +414,8 @@ async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if await _blocked(update):
+        return
     db.register_user(user.id, user.username or "", user.first_name or "")
     user_row = db.get_user(user.id)
     lang = get_lang(user_row)
@@ -345,9 +439,38 @@ async def show_reminders(update: Update, user_id: int, lang: str, tz_name: str =
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    try:
+        await _dispatch_callback(update, context)
+    except ValueError:
+        logger.warning(f"Непонятные данные кнопки: {query.data!r}")
+
+async def _dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
 
     user_row = await _run(db.get_user, query.from_user.id)
     lang = get_lang(user_row)
+
+    if user_row and user_row["is_banned"]:
+        return
+
+    if query.data.startswith(("rpage_", "npage_")):
+        page = int(query.data.split("_")[1])
+        if query.data.startswith("rpage_"):
+            rows = await _run(db.get_reminders, query.from_user.id)
+            if not rows:
+                await query.edit_message_text(t(lang, 'no_reminders'))
+                return
+            text, keyboard = build_reminders_message(
+                rows, query.from_user.id, lang,
+                user_row["timezone"] if user_row else None, page)
+        else:
+            rows = await _run(db.get_notes, query.from_user.id)
+            if not rows:
+                await query.edit_message_text(t(lang, 'no_notes'))
+                return
+            text, keyboard = build_notes_message(rows, lang, page)
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+        return
 
     # lang switch
     if query.data.startswith("lang_"):
@@ -468,6 +591,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, rid_str, mins_str = query.data.split("_")
         reminder_id = int(rid_str)
         minutes = int(mins_str)
+        if already_handled(query.message.chat_id, getattr(query.message, "message_id", 0), query.data):
+            return
         info = sched.PENDING_SNOOZE.get(reminder_id) or recover_snooze_info(query.message)
         if info:
             new_fire = _time.time() + minutes * 60
@@ -528,9 +653,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _text: str = None):
     user = update.effective_user
-    await _run(db.register_user, user.id, user.username or "", user.first_name or "")
-
     user_row = await _run(db.get_user, user.id)
+    if user_row is None:
+        if await _run(_too_many_newcomers):
+            logger.warning("Достигнут предел новых пользователей в час")
+            return
+        await _run(db.register_user, user.id, user.username or "", user.first_name or "")
+        user_row = await _run(db.get_user, user.id)
     lang = get_lang(user_row)
     kb = get_keyboard(lang)
 
@@ -626,6 +755,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
         note_text = m_note_add.group(1).strip()
         if len(note_text) > 500:
             await update.message.reply_text(t(lang, 'note_too_long'), reply_markup=kb)
+            return
+        if await _run(db.get_notes_count, user.id) >= config.MAX_NOTES:
+            await update.message.reply_text(t(lang, 'limit_notes', n=config.MAX_NOTES), reply_markup=kb)
             return
         db.add_note(user.id, note_text)
         await update.message.reply_text(t(lang, 'note_saved', text=note_text), reply_markup=kb)
@@ -801,7 +933,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, _te
     for _, parsed in results:
         ok, err = middleware.check_new_reminder(user.id, lang)
         if not ok:
-            await update.message.reply_text(err, reply_markup=kb)
+            # часть напоминаний уже создана — человек должен об этом узнать
+            tail = (chr(10).join(reply_lines) + " ✅" + chr(10) + chr(10)) if reply_lines else ""
+            await update.message.reply_text(tail + err, reply_markup=kb)
             return
 
         reminder_id = await _run(db.add_reminder,
@@ -875,7 +1009,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_row and user_row["is_banned"]:
         return
 
+    allowed, reason = middleware.check_message(user.id, user_row)
+    if not allowed:
+        if reason == "flood":
+            await update.message.reply_text(t(lang, 'flood'), reply_markup=get_keyboard(lang))
+        return
+
     voice = update.message.voice
+    if voice.duration and voice.duration > 120:
+        await update.message.reply_text(t(lang, 'voice_too_long'), reply_markup=get_keyboard(lang))
+        return
     file = await context.bot.get_file(voice.file_id)
     audio_bytes = await file.download_as_bytearray()
 
@@ -884,7 +1027,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         transcription = client.audio.transcriptions.create(
             file=("voice.ogg", bytes(audio_bytes)),
             model="whisper-large-v3",
-            language="ru",
+            language=lang,
         )
         text = transcription.text.strip()
     except Exception as e:
@@ -894,6 +1037,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not text:
         await update.message.reply_text(t(lang, 'voice_fail'), reply_markup=get_keyboard(lang))
+        return
+
+    ok, err = middleware.check_message_length(text, lang)
+    if not ok:
+        await update.message.reply_text(err, reply_markup=get_keyboard(lang))
         return
 
     await handle_message(update, context, _text=text)

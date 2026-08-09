@@ -408,8 +408,99 @@ def case_admin_never_shows_text():
     return errors
 
 
+
+def case_long_list_fits_telegram():
+    rows = [{"id": i, "type": "once", "message": "щ" * 200, "next_fire": time.time() + 600,
+             "interval_seconds": None} for i in range(1, 51)]
+    text, markup = bot.build_reminders_message(rows, 1, "ru", MSK)
+    buttons = sum(len(r) for r in markup.inline_keyboard)
+    errors = []
+    if len(text) > 4096:
+        errors.append(f"сообщение из {len(text)} символов телеграм отклонит")
+    if buttons > 100:
+        errors.append(f"{buttons} кнопок — больше предела телеграма")
+    if "1." not in text or "8." not in text:
+        errors.append("на странице должно быть восемь напоминаний")
+    return errors
+
+
+def case_long_notes_fit_telegram():
+    notes = [{"id": i, "text": "щ" * 500} for i in range(1, 60)]
+    text, markup = bot.build_notes_message(notes, "ru")
+    errors = []
+    if len(text) > 4096:
+        errors.append(f"сообщение из {len(text)} символов телеграм отклонит")
+    if sum(len(r) for r in markup.inline_keyboard) > 100:
+        errors.append("кнопок больше предела")
+    return errors
+
+
+def case_pagination_navigation():
+    rows = [{"id": i, "type": "once", "message": f"дело {i}", "next_fire": time.time() + 600,
+             "interval_seconds": None} for i in range(1, 30)]
+    _, first = bot.build_reminders_message(rows, 1, "ru", MSK, page=0)
+    text2, second = bot.build_reminders_message(rows, 1, "ru", MSK, page=1)
+    cb1, cb2 = all_callbacks(first), all_callbacks(second)
+    errors = []
+    if "rpage_1" not in cb1:
+        errors.append("с первой страницы нельзя уйти вперёд")
+    if "rpage_0" not in cb2:
+        errors.append("со второй страницы нельзя вернуться")
+    if "rpage_-1" in cb1:
+        errors.append("предложен переход перед первой страницей")
+    if "9. " not in text2:
+        errors.append("вторая страница начинается не с девятого")
+    out_text, _ = bot.build_reminders_message(rows, 1, "ru", MSK, page=999)
+    if "дело 29" not in out_text:
+        errors.append("запрос несуществующей страницы не прижался к последней")
+    return errors
+
+
+def case_double_tap_guarded():
+    bot._HANDLED_TAPS.clear()
+    first = bot.already_handled(1, 2, "snooze_5_60")
+    second = bot.already_handled(1, 2, "snooze_5_60")
+    other = bot.already_handled(1, 3, "snooze_5_60")
+    errors = []
+    if first:
+        errors.append("первое нажатие посчиталось повтором")
+    if not second:
+        errors.append("повторное нажатие той же кнопки не отсекается")
+    if other:
+        errors.append("нажатие в другом сообщении принято за повтор")
+    return errors
+
+
+def case_message_fits_guard():
+    huge = ["ю" * 5000, "хвост"]
+    out = bot._fit(huge)
+    if len(out) > 4096:
+        return [f"страховка не сработала: {len(out)} символов"]
+    return []
+
+
+def case_year_shown_only_when_needed():
+    from datetime import datetime as dt
+    tz = ZoneInfo(MSK)
+    now = dt.now(tz)
+    same = bot._fmt_datetime(now.replace(month=12, day=1), "ru")
+    other = bot._fmt_datetime(now.replace(year=now.year + 1, month=1, day=5), "ru")
+    errors = []
+    if len(same.split(".")) > 2:
+        errors.append(f"в этом году год лишний: {same}")
+    if len(other.split(".")) < 3:
+        errors.append(f"для другого года год не показан: {other}")
+    return errors
+
+
 cases = [
     ("заметки экранируются", case_notes_escaped),
+    ("длинный список влезает в телеграм", case_long_list_fits_telegram),
+    ("длинные заметки влезают в телеграм", case_long_notes_fit_telegram),
+    ("листание страниц", case_pagination_navigation),
+    ("двойное нажатие не срабатывает дважды", case_double_tap_guarded),
+    ("страховка по длине сообщения", case_message_fits_guard),
+    ("год показывается только когда нужен", case_year_shown_only_when_needed),
     ("админка только для владельца", case_admin_only),
     ("несколько админов через запятую", case_several_admins),
     ("сводка считает верно", case_admin_overview_numbers),
