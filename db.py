@@ -4,7 +4,7 @@ import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 import crypto
-from config import DATABASE_URL
+from config import DATABASE_URL, DB_POOL_SIZE
 
 from contextlib import contextmanager
 
@@ -17,7 +17,7 @@ def _get_pool():
         with _pool_lock:
             if _pool is None:
                 _pool = psycopg2.pool.ThreadedConnectionPool(
-                    2, 10, DATABASE_URL,
+                    2, DB_POOL_SIZE, DATABASE_URL,
                     keepalives=1,
                     keepalives_idle=30,
                     keepalives_interval=10,
@@ -394,6 +394,12 @@ def delete_note(note_id: int, user_id: int) -> bool:
             deleted = cur.rowcount > 0
         conn.commit()
         return deleted
+
+def count_new_users_since(ts: float) -> int:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM users WHERE registered_at > %s", (ts,))
+            return cur.fetchone()[0]
 
 def get_notes_count(user_id: int) -> int:
     with get_conn() as conn:
